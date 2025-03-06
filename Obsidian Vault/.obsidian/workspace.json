@@ -1,0 +1,183 @@
+{
+  "main": {
+    "id": "c294eaef4335e2a7",
+    "type": "split",
+    "children": [
+      {
+        "id": "416cce928c493a3c",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "70028371a573d0e3",
+            "type": "leaf",
+            "state": {
+              "type": "pdf",
+              "state": {
+                "file": "2103.00020v1.pdf"
+              },
+              "icon": "lucide-file-text",
+              "title": "2103.00020v1"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "cd9a740be0d1774f",
+    "type": "split",
+    "children": [
+      {
+        "id": "f6e2adaf9f64fa4f",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "4a5e249647608f62",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "7a677662570d0acb",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "235ec28e74a4a5a1",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "right": {
+    "id": "6f683b2a09aa9c61",
+    "type": "split",
+    "children": [
+      {
+        "id": "5aafef77bce1d33d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "18e5df40868017a1",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "2103.00020v1.pdf",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for 2103.00020v1"
+            }
+          },
+          {
+            "id": "bbbaedf3a86c765c",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "2103.00020v1.pdf",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from 2103.00020v1"
+            }
+          },
+          {
+            "id": "28ceb143e8829a00",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "3ea4c55c7e776a26",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "2103.00020v1.pdf",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of 2103.00020v1"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false
+    }
+  },
+  "active": "70028371a573d0e3",
+  "lastOpenFiles": [
+    "2207.12396v2.pdf",
+    "460 resources/Resource Files.md",
+    "2103.00020v1.pdf",
+    "2204.14244v1.pdf",
+    "2025-03-06.md",
+    "Untitled.canvas",
+    "().md",
+    "2103.00020v1 1.pdf",
+    "Welcome.md",
+    "460 resources"
+  ]
+}
