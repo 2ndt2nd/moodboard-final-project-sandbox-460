@@ -3,13 +3,15 @@
 Place all illustrations in folder "illustration_dataset"
 
 # Dependencies
+python -m pip install --upgrade pip
+pip install psutil
+pip install ipykernel     
+pip install clip-by-openai --no-deps
 
-$conda install pytorch==1.7.1 torchvision==0.8.2 torchaudio==0.7.2 cudatoolkit=11.0 -c pytorch
 
-$ conda create -n clip_env python=3.8
-$ conda activate clip_env
+$pip install pytorch torchvision torchaudio cudatoolkit=11.0 -c pytorch
 
-$ conda install jupyter
+$ pip install jupyter
 $ pip install pillow
 $ pip install git+https://github.com/openai/CLIP.git
 $ pip install clip-by-openai
