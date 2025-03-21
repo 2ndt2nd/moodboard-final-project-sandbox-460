@@ -5,3 +5,4 @@ clipenv
 build
 dist
 run.spec
+venv
