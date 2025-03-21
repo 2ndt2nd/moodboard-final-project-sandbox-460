@@ -182,7 +182,7 @@ def on_image_click(img_name, label, img_tk):
 
 # Function to handle the start button click
 def start_button_clicked(start_window, boxInput):
-    print(f"Start prompt: {start_prompts}")  # For debugging, prints the stored input
+    # print(f"Start prompt: {start_prompts}")  # For debugging, prints the stored input
     match_results = match_query(boxInput)
     if match_results is not None:
         start_window.destroy()  # Close the start window
@@ -212,8 +212,9 @@ def copy_selected_images():
 
 
 def main():
-    global model, text_features_dict, image_features_dict  # Make these global
+    global model, text_features_dict, image_features_dict, device  # Make these global
     model, preprocess = clip.load("ViT-B/32", device="cpu")
+    device = "cpu"
 
     # Load image embeddings
     image_features_dict = torch.load("image_embeddings.pt", map_location=torch.device('cpu'))
