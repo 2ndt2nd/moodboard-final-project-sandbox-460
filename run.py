@@ -209,7 +209,7 @@ def create_image_grid(match_results):
 
 def shuffle_images():
     global image_labels, last_match_results  # Use the same image labels for replacement
-
+    
     if not last_match_results:
         print("No images available to shuffle.")
         return
@@ -219,6 +219,7 @@ def shuffle_images():
     top_n = 50
     random_subset = random.sample(last_match_results[:top_n], top_k)
     image_files = [img for img, score in random_subset]
+    selected_images.clear()
 
     # Update the existing image labels with new images
     for idx, img_file in enumerate(image_files):
@@ -227,10 +228,16 @@ def shuffle_images():
 
         image.thumbnail((200, 200))
         img_tk = ImageTk.PhotoImage(image)
-
+        
         # Update the existing labels instead of recreating them
         image_labels[idx].config(image=img_tk, bg='red', bd=2)
         image_labels[idx].image = img_tk  # Keep a reference to prevent garbage collection
+
+        # Rebind the click event to the new image
+        image_labels[idx].bind(
+            "<Button-1>",
+            lambda event, name=img_file, label=image_labels[idx], img_tk=img_tk: on_image_click(name, label, img_tk)
+        )
 
 # Function to handle image click (toggle selection)
 def on_image_click(img_name, label, img_tk):
