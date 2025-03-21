@@ -292,10 +292,6 @@ def main():
     # Load text embeddings
     text_features_dict = torch.load("text_embeddings.pt", map_location=torch.device('cpu'))
 
-    #Start the app
-    selected_images = {}
-    image_folder = "illustration_dataset"  # Change to your actual image folder
-
     create_start_screen()
 
 if __name__ == "__main__":
