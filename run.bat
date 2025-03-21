@@ -1,4 +1,3 @@
-@echo off
-call conda activate clip_env
+call venv/scripts/activate
 python run.py
 pause

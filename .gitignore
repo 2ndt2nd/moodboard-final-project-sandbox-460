@@ -3,6 +3,8 @@ workspace.json
 Obsidian Vault
 clipenv
 build
-dist
-run.spec
+dis
 venv
+_internal
+run*
+*.zip

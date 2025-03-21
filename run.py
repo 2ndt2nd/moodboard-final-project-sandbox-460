@@ -6,9 +6,7 @@ import random
 from tqdm import tqdm
 import ipywidgets as widgets
 from IPython.display import display
-import pyclip
 import io
-import win32clipboard
 import tkinter as tk
 from PIL import Image, ImageTk
 
@@ -36,7 +34,6 @@ def extract_text_features(text):
     
     status.value = "Extraction complete!"
     return text_features
-
 
 def match_query(input_query):
     # Initialize status widget
@@ -102,72 +99,138 @@ def create_start_screen():
     # Run the start screen
     start_window.mainloop()
 
-# Function to create the image grid UI
-def create_image_grid(match_results):
-    global selected_images  # Make sure we use the global dictionary
-    top_k = 10  # Number of images to display
-    top_n = 40  # Consider the top 50 instead of just top_k
-    random_subset = random.sample(match_results[:top_n], top_k)  # Pick top_k randomly
-    image_files = [img for img, score in random_subset[:10]]  # Get only image names
+# # Function to create the image grid UI
+# def create_image_grid(match_results):
+#     global selected_images  # Make sure we use the global dictionary
+#     top_k = 10  # Number of images to display
+#     top_n = 40  # Consider the top 50 instead of just top_k
+#     random_subset = random.sample(match_results[:top_n], top_k)  # Pick top_k randomly
+#     image_files = [img for img, score in random_subset[:10]]  # Get only image names
 
-    # Initialize the Tkinter window for the image grid
+#     # Initialize the Tkinter window for the image grid
+#     root = tk.Tk()
+#     root.title("Image Grid")
+
+#     # Frame to hold the image thumbnails
+#     image_frame = tk.Frame(root)
+#     image_frame.pack(padx=10, pady=10)
+
+#     # Clear any existing widgets from the image_frame before re-adding
+#     for widget in image_frame.winfo_children():
+#         widget.destroy()
+
+#     # Create a folder to store copied images if it doesn't exist
+#     if not os.path.exists('copied_images'):
+#         os.makedirs('copied_images')
+
+#     # Create the "Copy!" button
+#     copy_button = tk.Button(root, text="Copy!", command=copy_selected_images)
+#     copy_button.pack(pady=10)
+
+#     # Create the "Shuffle!" button to load a new set of images
+#     shuffle_button = tk.Button(root, text="Shuffle!", command=shuffle_images)
+#     shuffle_button.pack(pady=10)
+
+#     # Store image references to prevent garbage collection
+#     img_references = {}
+
+#     # Loop through the image files and add them to the grid
+#     for idx, img_file in enumerate(image_files):
+#         # Load the image
+#         image_path = os.path.join(image_folder, img_file)
+#         image = Image.open(image_path)
+
+#         # Resize the image to fit the grid
+#         image.thumbnail((150, 150))  # Resize image to fit in the UI
+
+#         # Convert image to Tkinter-compatible format
+#         img_tk = ImageTk.PhotoImage(image)
+
+#         # Store the reference to prevent garbage collection
+#         img_references[img_file] = img_tk
+
+#         # Create a label to display the image
+#         label = tk.Label(image_frame, image=img_tk, bg='red', bd=1)  # Set initial background to highlight, thinner border
+#         label.image = img_tk  # Keep a reference to the image to prevent garbage collection
+
+#         # Bind the click event to the label (make the image clickable)
+#         label.bind("<Button-1>", lambda event, name=img_file, label=label, img_tk=img_tk: on_image_click(name, label, img_tk))
+
+#         # Place the label in the grid
+#         label.grid(row=idx // 4, column=idx % 4, padx=10, pady=10)  # Adjust grid size
+
+#     # Start the Tkinter event loop to display the window
+#     root.mainloop()
+
+def create_image_grid(match_results):
+    global selected_images, image_labels, last_match_results
+
+    last_match_results = match_results  # Store latest results for shuffling
+    top_k = 15
+    top_n = 50
+    random_subset = random.sample(match_results[:top_n], top_k)
+    image_files = [img for img, score in random_subset]
+
     root = tk.Tk()
     root.title("Image Grid")
 
-    # Frame to hold the image thumbnails
     image_frame = tk.Frame(root)
     image_frame.pack(padx=10, pady=10)
 
-    # Clear any existing widgets from the image_frame before re-adding
-    for widget in image_frame.winfo_children():
-        widget.destroy()
+    # Store image labels globally so they can be updated on shuffle
+    image_labels = []
 
-    # Create a folder to store copied images if it doesn't exist
-    if not os.path.exists('copied_images'):
-        os.makedirs('copied_images')
+    for idx, img_file in enumerate(image_files):
+        image_path = os.path.join(image_folder, img_file)
+        image = Image.open(image_path)
+
+        image.thumbnail((200, 200))
+        img_tk = ImageTk.PhotoImage(image)
+
+        label = tk.Label(image_frame, image=img_tk, bg='red', bd=1)
+        label.image = img_tk
+        label.grid(row=idx % 3, column=idx // 3, padx=10, pady=10)
+
+        # Bind the click event to the label (make the image clickable)
+        label.bind("<Button-1>", lambda event, name=img_file, label=label, img_tk=img_tk: on_image_click(name, label, img_tk))
+
+        image_labels.append(label)  # Store labels for easy update
+
+    # Add Shuffle button
+    shuffle_button = tk.Button(root, text="Shuffle!", command=shuffle_images)
+    shuffle_button.pack(pady=10)
 
     # Create the "Copy!" button
     copy_button = tk.Button(root, text="Copy!", command=copy_selected_images)
     copy_button.pack(pady=10)
 
-    # Create the "Shuffle!" button to load a new set of images
-    shuffle_button = tk.Button(root, text="Shuffle!", command=shuffle_images)
-    shuffle_button.pack(pady=10)
+    root.mainloop()
 
-    # Store image references to prevent garbage collection
-    img_references = {}
 
-    # Loop through the image files and add them to the grid
+def shuffle_images():
+    global image_labels, last_match_results  # Use the same image labels for replacement
+
+    if not last_match_results:
+        print("No images available to shuffle.")
+        return
+
+    # Pick a new random subset of images
+    top_k = 15
+    top_n = 50
+    random_subset = random.sample(last_match_results[:top_n], top_k)
+    image_files = [img for img, score in random_subset]
+
+    # Update the existing image labels with new images
     for idx, img_file in enumerate(image_files):
-        # Load the image
         image_path = os.path.join(image_folder, img_file)
         image = Image.open(image_path)
 
-        # Resize the image to fit the grid
-        image.thumbnail((150, 150))  # Resize image to fit in the UI
-
-        # Convert image to Tkinter-compatible format
+        image.thumbnail((200, 200))
         img_tk = ImageTk.PhotoImage(image)
 
-        # Store the reference to prevent garbage collection
-        img_references[img_file] = img_tk
-
-        # Create a label to display the image
-        label = tk.Label(image_frame, image=img_tk, bg='red', bd=1)  # Set initial background to highlight, thinner border
-        label.image = img_tk  # Keep a reference to the image to prevent garbage collection
-
-        # Bind the click event to the label (make the image clickable)
-        label.bind("<Button-1>", lambda event, name=img_file, label=label, img_tk=img_tk: on_image_click(name, label, img_tk))
-
-        # Place the label in the grid
-        label.grid(row=idx // 4, column=idx % 4, padx=10, pady=10)  # Adjust grid size
-
-    # Start the Tkinter event loop to display the window
-    root.mainloop()
-
-# Function to shuffle the images (load a new set)
-def shuffle_images():
-    create_image_grid(start_prompts)  # Refresh image grid with a new set of images
+        # Update the existing labels instead of recreating them
+        image_labels[idx].config(image=img_tk, bg='red', bd=2)
+        image_labels[idx].image = img_tk  # Keep a reference to prevent garbage collection
 
 # Function to handle image click (toggle selection)
 def on_image_click(img_name, label, img_tk):
