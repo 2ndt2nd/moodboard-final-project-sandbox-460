@@ -2,3 +2,9 @@ workspace.json
 *.jpg
 Obsidian Vault
 clipenv
+build
+dis
+venv
+_internal
+run*
+*.zip
