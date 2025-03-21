@@ -2,3 +2,6 @@ workspace.json
 *.jpg
 Obsidian Vault
 clipenv
+build
+dist
+run.spec
