@@ -6,5 +6,5 @@ build
 dis
 venv
 _internal
-run*
+*.exe
 *.zip
