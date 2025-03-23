@@ -1,0 +1,83 @@
+
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Moodboard Canvas</title>
+            <style>
+                body {
+                    margin: 0;
+                    overflow: hidden;
+                }
+                svg {
+                    width: 100%;
+                    height: 100vh;
+                    background-color: #f0f0f0;
+                }
+                image {
+                    cursor: grab;
+                }
+            </style>
+        </head>
+        <body>
+            <svg id="canvas"></svg>
+
+            <script>
+                // Function to add an image to the SVG canvas
+                function addImageToCanvas(imageUrl, x, y, width, height) {
+                    const svgNS = "http://www.w3.org/2000/svg";
+                    const canvas = document.getElementById("canvas");
+
+                    // Create an SVG image element
+                    const img = document.createElementNS(svgNS, "image");
+                    img.setAttributeNS("http://www.w3.org/1999/xlink", "href", imageUrl);
+                    img.setAttribute("x", x);
+                    img.setAttribute("y", y);
+                    img.setAttribute("width", width);
+                    img.setAttribute("height", height);
+                    img.setAttribute("class", "draggable");
+
+                    // Add the image to the canvas
+                    canvas.appendChild(img);
+
+                    // Make the image draggable
+                    makeDraggable(img);
+                }
+
+                // Function to make an SVG element draggable
+                function makeDraggable(element) {
+                    let selectedElement = null;
+                    let offset = { x: 0, y: 0 };
+
+                    element.addEventListener("mousedown", startDrag);
+                    document.addEventListener("mousemove", drag);
+                    document.addEventListener("mouseup", endDrag);
+
+                    function startDrag(event) {
+                        selectedElement = element;
+                        offset.x = event.clientX - selectedElement.getAttribute("x");
+                        offset.y = event.clientY - selectedElement.getAttribute("y");
+                    }
+
+                    function drag(event) {
+                        if (selectedElement) {
+                            selectedElement.setAttribute("x", event.clientX - offset.x);
+                            selectedElement.setAttribute("y", event.clientY - offset.y);
+                        }
+                    }
+
+                    function endDrag() {
+                        selectedElement = null;
+                    }
+                }
+
+                // Add images to the canvas
+                addImageToCanvas("illustration_dataset\82695189_p0_master1200.jpg", 50, 50, 200, 200);
+addImageToCanvas("illustration_dataset\82136177_p0_master1200.jpg", 300, 50, 200, 200);
+addImageToCanvas("illustration_dataset\81660940_p0_master1200.jpg", 550, 50, 200, 200);
+addImageToCanvas("illustration_dataset\78999559_p0_master1200.jpg", 800, 50, 200, 200);
+            </script>
+        </body>
+        </html>
+        
