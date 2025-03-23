@@ -395,7 +395,7 @@ class MoodboardCanvasWindow(QMainWindow):
         self.scale_down_shortcut = QShortcut(QKeySequence("-"), self)
         self.scale_down_shortcut.activated.connect(self.scale_down)
 
-        self.scale_up_shortcut = QShortcut(QKeySequence("+"), self)
+        self.scale_up_shortcut = QShortcut(QKeySequence("="), self)
         self.scale_up_shortcut.activated.connect(self.scale_up)
 
         # Add images to the scene
@@ -460,9 +460,8 @@ class MoodboardCanvasWindow(QMainWindow):
         print(f"Moodboard saved to {svg_file}")
 
     def deselect_all_items(self):
-    """Deselect all items in the scene."""
-    for item in self.scene.items():
-        item.setSelected(False)
+        for item in self.scene.items():
+            item.setSelected(False)
 
     def scene_to_svg(self):
         self.deselect_all_items()
