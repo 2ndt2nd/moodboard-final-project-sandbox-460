@@ -4,13 +4,15 @@ import random
 import shutil
 import webbrowser
 import threading
-from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal
-from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
-from PyQt5.QtWebEngineWidgets import QWebEngineView
 import torch
 import clip
 from tqdm import tqdm
+from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QRectF, QPointF
+from PyQt5.QtGui import QPixmap, QImage, QCursor, QKeySequence, QPainter
+from PyQt5.QtSvg import QSvgGenerator
+from PyQt5.QtWebEngineWidgets import QWebEngineView
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem, QShortcut
+
 
 # Global variables
 image_folder = "illustration_dataset"  # Change to your actual image folder
@@ -240,12 +242,6 @@ class ImageGridWindow(QMainWindow):
         self.moodboard_window = MoodboardCanvasWindow(selected_image_paths)
         self.moodboard_window.show()
 
-from PyQt5.QtWidgets import QGraphicsRectItem, QGraphicsItem, QShortcut
-from PyQt5.QtCore import QRectF, QPointF
-from PyQt5.QtGui import QCursor, QKeySequence
-from PyQt5.QtSvg import QSvgGenerator
-from PyQt5.QtGui import QPainter
-
 class ImageLoaderThread(QThread):
     finished = pyqtSignal(list)  # Signal to emit when loading is complete
 
@@ -384,17 +380,14 @@ class MoodboardCanvasWindow(QMainWindow):
         # Add keyboard shortcuts for zooming
         self.zoom_in_shortcut = QShortcut(QKeySequence("Ctrl+="), self)
         self.zoom_in_shortcut.activated.connect(self.zoom_in)
-
         self.zoom_out_shortcut = QShortcut(QKeySequence("Ctrl+-"), self)
         self.zoom_out_shortcut.activated.connect(self.zoom_out)
-
         self.reset_zoom_shortcut = QShortcut(QKeySequence("Ctrl+0"), self)
         self.reset_zoom_shortcut.activated.connect(self.reset_zoom)
 
         # Add keyboard shortcuts for scaling the selected image
         self.scale_down_shortcut = QShortcut(QKeySequence("-"), self)
         self.scale_down_shortcut.activated.connect(self.scale_down)
-
         self.scale_up_shortcut = QShortcut(QKeySequence("="), self)
         self.scale_up_shortcut.activated.connect(self.scale_up)
 
