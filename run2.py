@@ -10,6 +10,8 @@ from PIL import Image, ImageTk
 import shutil
 import webbrowser
 import threading
+import win32clipboard
+import io
 
 # Global variables
 image_folder = "illustration_dataset"  # Change to your actual image folder
@@ -268,7 +270,9 @@ def create_image_grid(input_text, match_results, parent_window):
 
     # Create the "Copy!" button
     copy_button = tk.Button(parent_window, text="Copy!", command=lambda: copy_selected_images(parent_window))
+    # copy_button = tk.Button(parent_window, text="Copy!", command=lambda: copy_selected_images(parent_window))
     copy_button.pack(pady=10)
+
 # Function to shuffle images
 def shuffle_images(window):
     if not hasattr(window, 'original_prompt'):
@@ -366,6 +370,44 @@ def copy_selected_images(window):
             webbrowser.open(absolute_path)
         else:
             print(f"Image {img_name} not found.")
+
+
+def copy_to_clipboard(window):
+    if not window.selected_images:
+        print("No images selected.")
+        return
+
+    # Get the first selected image
+    img_name = next(iter(window.selected_images))  # Get the first key in the dictionary
+    image_path = os.path.join(image_folder, img_name)
+
+    if not os.path.exists(image_path):
+        print(f"Image {img_name} not found.")
+        return
+
+    # Load the image using Pillow
+    try:
+        image = Image.open(image_path)
+    except Exception as e:
+        print(f"Failed to open image {img_name}: {e}")
+        return
+
+    # Convert the image to a format compatible with the clipboard (CF_DIB)
+    output = io.BytesIO()
+    image.convert("RGB").save(output, "BMP")  # Save as BMP format
+    data = output.getvalue()[14:]  # Remove the BMP header
+    output.close()
+
+    # Copy the image data to the clipboard
+    try:
+        win32clipboard.OpenClipboard()
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)  # Use CF_DIB for image data
+        win32clipboard.CloseClipboard()
+        print(f"Copied {img_name} to clipboard.")
+    except Exception as e:
+        print(f"Failed to copy image to clipboard: {e}")
+
 
 # Main function
 def main():

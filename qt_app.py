@@ -4,9 +4,10 @@ import random
 import shutil
 import webbrowser
 import threading
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox
+from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
+from PyQt5.QtWebEngineWidgets import QWebEngineView
 import torch
 import clip
 from tqdm import tqdm
@@ -149,6 +150,11 @@ class ImageGridWindow(QMainWindow):
         self.copy_button.clicked.connect(self.copy_selected_images)
         self.layout.addWidget(self.copy_button)
 
+        # Add Open Moodboard button
+        self.open_moodboard_button = QPushButton("Open Moodboard")
+        self.open_moodboard_button.clicked.connect(self.open_moodboard)
+        self.layout.addWidget(self.open_moodboard_button)
+
     def create_image_grid(self):
         top_k = 16
         top_n = 50
@@ -221,6 +227,258 @@ class ImageGridWindow(QMainWindow):
                 webbrowser.open(absolute_path)
             else:
                 print(f"Image {img_name} not found.")
+
+    def open_moodboard(self):
+        if not self.selected_images:
+            QMessageBox.warning(self, "Error", "No images selected.")
+            return
+
+        # Get the paths of the selected images
+        selected_image_paths = [os.path.join(image_folder, img_name) for img_name in self.selected_images]
+
+        # Open the moodboard canvas window
+        self.moodboard_window = MoodboardCanvasWindow(selected_image_paths)
+        self.moodboard_window.show()
+
+from PyQt5.QtWidgets import QGraphicsRectItem, QGraphicsItem, QShortcut
+from PyQt5.QtCore import QRectF, QPointF
+from PyQt5.QtGui import QCursor, QKeySequence
+from PyQt5.QtSvg import QSvgGenerator
+from PyQt5.QtGui import QPainter
+
+class ImageLoaderThread(QThread):
+    finished = pyqtSignal(list)  # Signal to emit when loading is complete
+
+    def __init__(self, image_paths):
+        super().__init__()
+        self.image_paths = image_paths
+
+    def run(self):
+        pixmaps = []
+        for image_path in self.image_paths:
+            pixmap = QPixmap(image_path)
+            if not pixmap.isNull():
+                pixmaps.append(pixmap)
+        self.finished.emit(pixmaps)  # Emit the loaded pixmaps
+
+class ResizablePixmapItem(QGraphicsPixmapItem):
+    def __init__(self, pixmap):
+        super().__init__(pixmap)
+        self.setFlag(QGraphicsItem.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+
+        # Store the original pixmap for resizing
+        self.original_pixmap = pixmap
+
+    def scale_image(self, factor):
+        """Scale the image by a given factor."""
+        # Get the current size of the image
+        current_size = self.pixmap().size()
+
+        # Calculate the new size
+        new_width = int(current_size.width() * factor)
+        new_height = int(current_size.height() * factor)
+
+        # Resize the image while maintaining aspect ratio
+        scaled_pixmap = self.original_pixmap.scaled(new_width, new_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.setPixmap(scaled_pixmap)
+
+class CustomGraphicsView(QGraphicsView):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._panning = False
+        self._pan_start_pos = QPointF()
+
+    def wheelEvent(self, event):
+        # Check if Ctrl is pressed
+        if event.modifiers() & Qt.ControlModifier:
+            # Zoom in or out based on scroll direction
+            zoom_factor = 1.2 if event.angleDelta().y() > 0 else 0.8
+            self.scale(zoom_factor, zoom_factor)
+        else:
+            # Default behavior (scroll without zooming)
+            super().wheelEvent(event)
+
+    def mousePressEvent(self, event):
+        if self._panning:
+            # Start panning
+            self._pan_start_pos = event.pos()
+            self.setCursor(Qt.ClosedHandCursor)
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._panning:
+            # Pan the view
+            delta = self._pan_start_pos - event.pos()
+            self._pan_start_pos = event.pos()
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() + delta.y())
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._panning:
+            # Stop panning
+            self.setCursor(Qt.ArrowCursor)
+        else:
+            super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Space:
+            # Enable panning when spacebar is pressed
+            self._panning = True
+            self.setCursor(Qt.OpenHandCursor)
+        else:
+            super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key_Space:
+            # Disable panning when spacebar is released
+            self._panning = False
+            self.setCursor(Qt.ArrowCursor)
+        else:
+            super().keyReleaseEvent(event)
+
+class MoodboardCanvasWindow(QMainWindow):
+    def __init__(self, image_paths):
+        super().__init__()
+        self.setWindowTitle("Moodboard Canvas")
+
+        screen_geometry = QApplication.desktop().screenGeometry()
+        window_height = screen_geometry.height() - 100
+        window_width = screen_geometry.width() - 100
+        self.setGeometry(100, 100, window_width, window_height)
+
+        # Create the main widget and layout
+        self.main_widget = QWidget()
+        self.setCentralWidget(self.main_widget)
+        self.layout = QVBoxLayout(self.main_widget)
+
+        # Create a custom QGraphicsView and QGraphicsScene
+        self.scene = QGraphicsScene()
+        self.view = CustomGraphicsView(self.scene)  # Use CustomGraphicsView
+        self.layout.addWidget(self.view)
+
+        # Track the selected image
+        self.selected_item = None
+
+        # Track the highest z-value
+        self.highest_z_value = 0
+
+        # Add Zoom Out button
+        self.zoom_out_button = QPushButton("Zoom Out")
+        self.zoom_out_button.clicked.connect(self.zoom_out)
+        self.layout.addWidget(self.zoom_out_button)
+
+        # Add Zoom In button
+        self.zoom_in_button = QPushButton("Zoom In")
+        self.zoom_in_button.clicked.connect(self.zoom_in)
+        self.layout.addWidget(self.zoom_in_button)
+
+        # Add Reset Zoom button
+        self.reset_zoom_button = QPushButton("Reset Zoom")
+        self.reset_zoom_button.clicked.connect(self.reset_zoom)
+        self.layout.addWidget(self.reset_zoom_button)
+
+        # Add keyboard shortcuts for zooming
+        self.zoom_in_shortcut = QShortcut(QKeySequence("Ctrl+="), self)
+        self.zoom_in_shortcut.activated.connect(self.zoom_in)
+
+        self.zoom_out_shortcut = QShortcut(QKeySequence("Ctrl+-"), self)
+        self.zoom_out_shortcut.activated.connect(self.zoom_out)
+
+        self.reset_zoom_shortcut = QShortcut(QKeySequence("Ctrl+0"), self)
+        self.reset_zoom_shortcut.activated.connect(self.reset_zoom)
+
+        # Add keyboard shortcuts for scaling the selected image
+        self.scale_down_shortcut = QShortcut(QKeySequence("-"), self)
+        self.scale_down_shortcut.activated.connect(self.scale_down)
+
+        self.scale_up_shortcut = QShortcut(QKeySequence("+"), self)
+        self.scale_up_shortcut.activated.connect(self.scale_up)
+
+        # Add images to the scene
+        last_width_pos = 0
+        for idx, image_path in enumerate(image_paths):
+            pixmap = QPixmap(image_path)
+            if not pixmap.isNull():
+                last_width_pos += pixmap.width()
+                resizable_item = ResizablePixmapItem(pixmap)
+                resizable_item.setPos(last_width_pos + 50, 0)  # Adjust initial positions
+                self.scene.addItem(resizable_item)
+
+                # Connect the item's selection event
+                resizable_item.setFlag(QGraphicsItem.ItemIsSelectable, True)
+                resizable_item.mousePressEvent = lambda event, item=resizable_item: self.select_item(item)
+
+        # Add Save button
+        self.save_button = QPushButton("Save Moodboard as SVG")
+        self.save_button.clicked.connect(self.save_moodboard)
+        self.layout.addWidget(self.save_button)
+
+    def select_item(self, item):
+        """Set the selected item and bring it to the topmost layer."""
+        if self.selected_item:
+            self.selected_item.setSelected(False)  # Deselect the previously selected item
+
+        # Bring the clicked item to the topmost layer
+        self.highest_z_value += 1
+        item.setZValue(self.highest_z_value)
+
+        # Select the new item
+        self.selected_item = item
+        self.selected_item.setSelected(True)
+
+    def scale_down(self):
+        """Scale the selected image down by 10%."""
+        if self.selected_item:
+            self.selected_item.scale_image(0.9)  # Scale down by 10%
+
+    def scale_up(self):
+        """Scale the selected image up by 10%."""
+        if self.selected_item:
+            self.selected_item.scale_image(1.1)  # Scale up by 10%
+
+    def zoom_in(self):
+        """Zoom in by scaling the view."""
+        self.view.scale(1.2, 1.2)  # Increase scale by 20%
+
+    def zoom_out(self):
+        """Zoom out by scaling the view."""
+        self.view.scale(0.8, 0.8)  # Decrease scale by 20%
+
+    def reset_zoom(self):
+        """Reset the zoom level to the original scale."""
+        self.view.resetTransform()  # Reset the view's transformation matrix
+
+    def save_moodboard(self):
+        # Save the current scene as an SVG file
+        svg_file = "moodboard.svg"
+        with open(svg_file, "w") as f:
+            f.write(self.scene_to_svg())
+        print(f"Moodboard saved to {svg_file}")
+
+    def deselect_all_items(self):
+    """Deselect all items in the scene."""
+    for item in self.scene.items():
+        item.setSelected(False)
+
+    def scene_to_svg(self):
+        self.deselect_all_items()
+
+        generator = QSvgGenerator()
+        generator.setFileName("moodboard.svg")
+        generator.setSize(self.scene.sceneRect().size().toSize())
+        generator.setViewBox(self.scene.sceneRect())
+
+        painter = QPainter()
+        painter.begin(generator)
+        self.scene.render(painter)
+        painter.end()
+
+        with open("moodboard.svg", "r") as f:
+            return f.read()
 
 # Main function
 def main():
