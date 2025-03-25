@@ -1,3 +1,5 @@
 workspace.json
 *.jpg
 Obsidian Vault
+_internal
+*.exe
