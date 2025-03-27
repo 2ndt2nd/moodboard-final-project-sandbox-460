@@ -156,6 +156,8 @@ class MainWindow(QMainWindow):
         self.start_button.clicked.connect(self.start_button_clicked)
         self.layout.addWidget(self.start_button)
 
+        self.moodboard_window = None
+
 ## Subject for moving
 
     def start_button_clicked(self):
@@ -181,14 +183,14 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(True)
         
         # Pass results to the image grid window
-        self.image_grid_window = ImageGridWindow(self.input_box.text(), results)
+        self.image_grid_window = ImageGridWindow(self.input_box.text(), results, self)
         self.image_grid_window.show()
 
 ## Subject for moving
 
 # Image grid window class
 class ImageGridWindow(QMainWindow):
-    def __init__(self, input_text, match_results=None):
+    def __init__(self, input_text, match_results=None, main_window=None):
         super().__init__()
         self.setWindowTitle("Image Grid")
 
@@ -240,22 +242,21 @@ class ImageGridWindow(QMainWindow):
 
         self.reference_image = input_text if isinstance(input_text, str) else None
 
+        self.main_window = main_window
+
     def create_image_grid(self):
         if not self.match_results:
             QMessageBox.warning(self, "Error", "No images found matching the criteria")
             return
     
-        # Calculate how many images we can actually show
         available_images = len(self.match_results)
         top_k = min(16, available_images)
         top_n = min(50, available_images)
         
-        # Get random subset (now guaranteed to work)
+
         if available_images <= top_k:
-            # If we have few images, just show them all
             image_files = [img for img, score in self.match_results]
         else:
-            # Otherwise get a random sample
             random_subset = random.sample(self.match_results[:top_n], top_k)
             image_files = [img for img, score in random_subset]
 
@@ -274,8 +275,6 @@ class ImageGridWindow(QMainWindow):
             label = QLabel()
             label.setPixmap(pixmap)
             label.setStyleSheet("border: 2px solid red;")
-            
-            # Connect both left and right click events
             label.mousePressEvent = lambda event, name=img_file, lbl=label: (
                 self.on_image_click(name, lbl) 
                 if event.button() == Qt.LeftButton 
@@ -285,13 +284,12 @@ class ImageGridWindow(QMainWindow):
                 else None)
                 )
         
-
-            # Calculate row and column based on the number of columns
             row = idx // num_columns
             column = idx % num_columns
             self.grid_layout.addWidget(label, row, column, alignment=Qt.AlignCenter)
 
     def shuffle_images(self):
+        available_images = len(self.match_results)
         top_k = min(16, available_images)
         top_n = min(50, available_images)
         random_subset = random.sample(self.match_results[:top_n], top_k)
@@ -349,16 +347,10 @@ class ImageGridWindow(QMainWindow):
         
         QApplication.processEvents()
         
-        # Get visually similar images first
-        similar_images = find_similar_images(img_name, top_k=16)  # Get max we might need
-        text_descriptions = get_closest_texts(img_name, top_k=3)  # Get top 3 text descriptors
-        
-        # If we don't have enough visually similar images, supplement with text-based matches
+        similar_images = find_similar_images(img_name, top_k=16)  
+        text_descriptions = get_closest_texts(img_name, top_k=3)  
         if len(similar_images) < 16 and text_descriptions:
-            # Use the most relevant text descriptor to find additional matches
             text_based_matches = match_query(text_descriptions[0], None)
-            
-            # Filter out images already in similar_images and the original image
             existing_images = {img for img, _ in similar_images} | {img_name}
             additional_matches = [
                 (img, score) for img, score in text_based_matches 
@@ -370,7 +362,6 @@ class ImageGridWindow(QMainWindow):
         progress.close()
         
         if similar_images:
-            # Show similarity scores in tooltips
             for img, score in similar_images:
                 print(f"{img}: {score:.3f}")
                 
@@ -403,53 +394,44 @@ class ImageGridWindow(QMainWindow):
         # Get the paths of the selected images
         selected_image_paths = [os.path.join(image_folder, img_name) for img_name in self.selected_images]
 
-        # Open the moodboard canvas window
-        self.moodboard_window = MoodboardCanvasWindow(selected_image_paths)
-        self.moodboard_window.show()
-
-        def start_button_clicked(self):
-            input_text = self.input_box.text()
-            if not input_text:
-                QMessageBox.warning(self, "Error", "Please enter a prompt.")
+        # Ensure we have a main window reference
+        if not hasattr(self, 'main_window') or self.main_window is None:
+            # Try to find the main window through parent relationships
+            parent = self.parent()
+            while parent and not isinstance(parent, MainWindow):
+                parent = parent.parent()
+            if parent:
+                self.main_window = parent
+            else:
+                # Fallback - create a new moodboard window
+                self.moodboard_window = MoodboardCanvasWindow(selected_image_paths)
+                self.moodboard_window.show()
                 return
 
-            # Show progress bar
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setValue(0)
-            self.start_button.setEnabled(False)
+        # Get or create the moodboard window
+        if not hasattr(self.main_window, 'moodboard_window') or self.main_window.moodboard_window is None:
+            self.main_window.moodboard_window = MoodboardCanvasWindow(selected_image_paths)
+        else:
+            # Clear existing items from the scene
+            self.main_window.moodboard_window.scene.clear()
             
-            # Start matching with progress updates
-            match_query(input_text, self.progress_signal)
-
-
-    ## Immigrating features
-    def start_button_clicked(self):
-        input_text = self.input_box.text()
-        if not input_text:
-            QMessageBox.warning(self, "Error", "Please enter a prompt.")
-            return
-
-        # Show progress bar
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
-        self.start_button.setEnabled(False)
+            # Add new images to the scene
+            last_width_pos = 0
+            for idx, image_path in enumerate(selected_image_paths):
+                pixmap = QPixmap(image_path)
+                if not pixmap.isNull():
+                    last_width_pos += pixmap.width()
+                    resizable_item = ResizablePixmapItem(pixmap)
+                    resizable_item.setPos(last_width_pos + 50, 0)
+                    self.main_window.moodboard_window.scene.addItem(resizable_item)
+                    resizable_item.setFlag(QGraphicsItem.ItemIsSelectable, True)
+                    resizable_item.mousePressEvent = lambda event, item=resizable_item: self.main_window.moodboard_window.select_item(item)
+            
+            # Reset view transform
+            self.main_window.moodboard_window.view.resetTransform()
         
-        # Start matching with progress updates
-        match_query(input_text, self.progress_signal)
-   
-    def update_progress(self, current, total):
-        percent = int((current / total) * 100)
-        self.progress_bar.setValue(percent)
+        self.main_window.moodboard_window.show()
 
-    def on_similarity_complete(self, results):
-        self.progress_bar.setVisible(False)
-        self.start_button.setEnabled(True)
-        
-        # Pass results to the image grid window
-        self.image_grid_window = ImageGridWindow(self.input_box.text(), results)
-        self.image_grid_window.show()
-
-    ## Immigrating
 
 class ResizablePixmapItem(QGraphicsPixmapItem):
     def __init__(self, pixmap):
@@ -531,7 +513,7 @@ class CustomGraphicsView(QGraphicsView):
             super().keyReleaseEvent(event)
 
 class MoodboardCanvasWindow(QMainWindow):
-    def __init__(self, image_paths):
+    def __init__(self, image_paths=None):
         super().__init__()
         self.setWindowTitle("Moodboard Canvas")
         self.setGeometry(0, 0, sw, sh)
@@ -546,10 +528,7 @@ class MoodboardCanvasWindow(QMainWindow):
         self.view = CustomGraphicsView(self.scene)  # Use CustomGraphicsView
         self.layout.addWidget(self.view)
 
-        # Track the selected image
         self.selected_item = None
-
-        # Track the highest z-value
         self.highest_z_value = 0
 
         # Add Zoom Out button
@@ -582,18 +561,17 @@ class MoodboardCanvasWindow(QMainWindow):
         self.scale_up_shortcut.activated.connect(self.scale_up)
 
         # Add images to the scene
-        last_width_pos = 0
-        for idx, image_path in enumerate(image_paths):
-            pixmap = QPixmap(image_path)
-            if not pixmap.isNull():
-                last_width_pos += pixmap.width()
-                resizable_item = ResizablePixmapItem(pixmap)
-                resizable_item.setPos(last_width_pos + 50, 0)  # Adjust initial positions
-                self.scene.addItem(resizable_item)
-
-                # Connect the item's selection event
-                resizable_item.setFlag(QGraphicsItem.ItemIsSelectable, True)
-                resizable_item.mousePressEvent = lambda event, item=resizable_item: self.select_item(item)
+        if image_paths:
+            last_width_pos = 0
+            for idx, image_path in enumerate(image_paths):
+                pixmap = QPixmap(image_path)
+                if not pixmap.isNull():
+                    last_width_pos += pixmap.width()
+                    resizable_item = ResizablePixmapItem(pixmap)
+                    resizable_item.setPos(last_width_pos + 50, 0)
+                    self.scene.addItem(resizable_item)
+                    resizable_item.setFlag(QGraphicsItem.ItemIsSelectable, True)
+                    resizable_item.mousePressEvent = lambda event, item=resizable_item: self.select_item(item)
 
         # Add Save button
         self.save_button = QPushButton("Save Moodboard as SVG")
@@ -641,6 +619,19 @@ class MoodboardCanvasWindow(QMainWindow):
         with open(svg_file, "w") as f:
             f.write(self.scene_to_svg())
         print(f"Moodboard saved to {svg_file}")
+
+    def add_images_to_scene(self, image_paths):
+        """Helper method to add images to the scene"""
+        last_width_pos = 0
+        for idx, image_path in enumerate(image_paths):
+            pixmap = QPixmap(image_path)
+            if not pixmap.isNull():
+                last_width_pos += pixmap.width()
+                resizable_item = ResizablePixmapItem(pixmap)
+                resizable_item.setPos(last_width_pos + 50, 0)
+                self.scene.addItem(resizable_item)
+                resizable_item.setFlag(QGraphicsItem.ItemIsSelectable, True)
+                resizable_item.mousePressEvent = lambda event, item=resizable_item: self.select_item(item)
 
     def deselect_all_items(self):
         self.selected_item = None
