@@ -7,11 +7,11 @@ import threading
 import torch
 import clip
 from tqdm import tqdm
-from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QRectF, QPointF
+from PyQt5.QtCore import Qt, QObject, QUrl, QThread, QRectF, QPointF, pyqtSignal
 from PyQt5.QtGui import QPixmap, QImage, QCursor, QKeySequence, QPainter
 from PyQt5.QtSvg import QSvgGenerator
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem, QShortcut
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem, QShortcut, QProgressBar, QMenu
 
 
 # Global variables
@@ -19,7 +19,10 @@ image_folder = "illustration_dataset"  # Change to your actual image folder
 last_match_results = []
 text_features_dict = {}
 image_features_dict = {}
-model = None
+sg = None
+sh = 0
+sw = 0
+model, preprocess = clip.load("ViT-B/32", device="cpu")
 device = "cpu"
 
 # Global dictionary to store sorted results for each prompt
@@ -34,12 +37,14 @@ def extract_text_features(text):
     return text_features
 
 # Function to match a query
-def match_query(input_query):
+def match_query(input_query, progress_signal=None):
     global prompt_results_cache
 
     # Check if results are already cached
     if input_query in prompt_results_cache:
         print("Using cached results for:", input_query)
+        if progress_signal:
+            progress_signal.finished.emit(prompt_results_cache[input_query])
         return prompt_results_cache[input_query]
 
     # Get the text features for the query
@@ -48,55 +53,94 @@ def match_query(input_query):
     else:
         text_features = extract_text_features(input_query)
 
-    # Function to compute similarities in the background
     def compute_similarities():
         similarities = {}
-        for img_name, img_features in tqdm(image_features_dict.items(), desc="Computing Similarity", mininterval=0.5):
+        total_images = len(image_features_dict)  # Define total_images here
+        
+        # Process images
+        for i, (img_name, img_features) in enumerate(image_features_dict.items(), 1):
             similarities[img_name] = torch.cosine_similarity(text_features, img_features, dim=-1).item()
+            if progress_signal:
+                progress_signal.progress_updated.emit(i, total_images)
 
-        # Sort results by similarity
+        # Sorting images and returning on finish
         sorted_images = sorted(similarities.items(), key=lambda x: x[1], reverse=True)
-
-        # Cache the sorted results for this prompt
         prompt_results_cache[input_query] = sorted_images
+        if progress_signal:
+            progress_signal.finished.emit(sorted_images)
+        
         return sorted_images
 
-    # Run the similarity computation in a separate thread
     thread = threading.Thread(target=compute_similarities)
     thread.start()
 
-    # Wait for the thread to complete and return the results
-    thread.join()  # Wait for the thread to finish
-    return prompt_results_cache[input_query]  # Return the cached results
+    if not progress_signal:  # Only wait if no signal is provided
+        thread.join()
+        return prompt_results_cache[input_query]
+
+def get_closest_texts(image_name, top_k=5):
+    global text_features_dict, image_features_dict
+    
+    img_features = image_features_dict[image_name]
+    similarities = {}
+
+    # Find words that apply to the image
+    for text, text_features in text_features_dict.items():
+        similarities[text] = torch.cosine_similarity(
+            img_features, text_features, dim=-1
+        ).item()
+    
+    #Return sorted array of words
+    sorted_texts = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:top_k]
+    print(sorted_texts)
+    return [text for text, score in sorted_texts]
+
+
+class ProgressSignal(QObject):
+    progress_updated = pyqtSignal(int, int)  # (current, total)
+    finished = pyqtSignal(list)
 
 # Main window class
 class MainWindow(QMainWindow):
     def __init__(self):
+        global sg, sw, sh
         super().__init__()
-        self.setWindowTitle("Welcome")
-        self.setGeometry(100, 100, 400, 200)
 
-        # Create the main widget and layout
+        sg = QApplication.desktop().screenGeometry()
+        sw = sg.width()
+        sh = sg.height()
+        self.setWindowTitle("Welcome")
+        self.setGeometry(sw//2, sh//2, 400, 200)
+
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
         self.layout = QVBoxLayout(self.main_widget)
 
-        # Add a label for the title
-        self.title_label = QLabel("Start Your Moodboard!")
+        self.title_label = QLabel("Write out your moodboard prompts!")
         self.title_label.setStyleSheet("font-size: 30px; font-weight: bold; font-family: Arial;")
         self.layout.addWidget(self.title_label)
 
-        # Add a label and text box for the user to enter some text
         self.input_label = QLabel("Enter your prompt:")
         self.layout.addWidget(self.input_label)
 
         self.input_box = QLineEdit()
         self.layout.addWidget(self.input_box)
 
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setVisible(False)
+        self.layout.addWidget(self.progress_bar)
+
+        self.progress_signal = ProgressSignal()
+        self.progress_signal.progress_updated.connect(self.update_progress)
+        self.progress_signal.finished.connect(self.on_similarity_complete)
+
         # Add a start button
         self.start_button = QPushButton("Start")
         self.start_button.clicked.connect(self.start_button_clicked)
         self.layout.addWidget(self.start_button)
+
+## Subject for moving
 
     def start_button_clicked(self):
         input_text = self.input_box.text()
@@ -104,21 +148,41 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Please enter a prompt.")
             return
 
-        # Create a new window for the image grid
-        self.image_grid_window = ImageGridWindow(input_text)
+        # Show progress bar
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.start_button.setEnabled(False)
+        
+        # Start matching with progress updates
+        match_query(input_text, self.progress_signal)
+   
+    def update_progress(self, current, total):
+        percent = int((current / total) * 100)
+        self.progress_bar.setValue(percent)
+
+    def on_similarity_complete(self, results):
+        self.progress_bar.setVisible(False)
+        self.start_button.setEnabled(True)
+        
+        # Pass results to the image grid window
+        self.image_grid_window = ImageGridWindow(self.input_box.text(), results)
         self.image_grid_window.show()
+
+## Subject for moving
 
 # Image grid window class
 class ImageGridWindow(QMainWindow):
-    def __init__(self, input_text):
+    def __init__(self, input_text, match_results=None):
         super().__init__()
         self.setWindowTitle("Image Grid")
-        self.setGeometry(100, 50, 900, 700)
+
+        self.setGeometry(0, 0, sw, sh)
 
         self.input_text = input_text
         self.selected_images = {}
+        self.match_results = match_results  # Store but don't create grid yet
 
-        # Create the main widget and layout
+        # Create UI elements but don't populate grid
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
         self.layout = QVBoxLayout(self.main_widget)
@@ -138,24 +202,25 @@ class ImageGridWindow(QMainWindow):
         self.scroll_area.setWidget(self.scroll_widget)
         self.grid_layout = QGridLayout(self.scroll_widget)
 
-        # Add images to the grid
-        self.match_results = match_query(input_text)
-        self.create_image_grid()
-
-        # Add Shuffle button
+        # Create Shuffle button
         self.shuffle_button = QPushButton("Shuffle!")
         self.shuffle_button.clicked.connect(self.shuffle_images)
         self.layout.addWidget(self.shuffle_button)
 
-        # Add Copy button
+        # Create Copy button
         self.copy_button = QPushButton("Copy!")
         self.copy_button.clicked.connect(self.copy_selected_images)
         self.layout.addWidget(self.copy_button)
 
-        # Add Open Moodboard button
+        # Create Moodboard button
         self.open_moodboard_button = QPushButton("Open Moodboard")
         self.open_moodboard_button.clicked.connect(self.open_moodboard)
         self.layout.addWidget(self.open_moodboard_button)
+
+        # Add images to the grid
+        if match_results:  # Use provided results if available
+            self.match_results = match_results
+            self.create_image_grid()
 
     def create_image_grid(self):
         top_k = 16
@@ -167,8 +232,7 @@ class ImageGridWindow(QMainWindow):
         image_size = 250  
         padding = 10 
         window_width = num_columns * (image_size + padding)
-        screen_geometry = QApplication.desktop().screenGeometry()
-        window_height = screen_geometry.height()-100
+        window_height = sg.height()-100
         self.resize(window_width, window_height)
 
         for idx, img_file in enumerate(image_files):
@@ -179,7 +243,17 @@ class ImageGridWindow(QMainWindow):
             label = QLabel()
             label.setPixmap(pixmap)
             label.setStyleSheet("border: 2px solid red;")
-            label.mousePressEvent = lambda event, name=img_file, label=label: self.on_image_click(name, label)
+            
+            # Connect both left and right click events
+            label.mousePressEvent = lambda event, name=img_file, lbl=label: (
+                self.on_image_click(name, lbl) 
+                if event.button() == Qt.LeftButton 
+                else (
+                    self.show_context_menu(event.pos(), name, lbl) 
+                    if event.button() == Qt.RightButton 
+                else None)
+                )
+        
 
             # Calculate row and column based on the number of columns
             row = idx // num_columns
@@ -201,8 +275,15 @@ class ImageGridWindow(QMainWindow):
             label = self.grid_layout.itemAt(idx).widget()
             label.setPixmap(pixmap)
             label.setStyleSheet("border: 0px solid transparent;")
-            label.mousePressEvent = lambda event, name=img_file, label=label: self.on_image_click(name, label)
-
+            label.mousePressEvent = lambda event, name=img_file, lbl=label: (
+                self.on_image_click(name, lbl) 
+                if event.button() == Qt.LeftButton 
+                else (
+                    self.show_context_menu(event.pos(), name, lbl) 
+                    if event.button() == Qt.RightButton 
+                else None)
+                )
+            
     def on_image_click(self, img_name, label):
         if img_name in self.selected_images:
             del self.selected_images[img_name]
@@ -230,6 +311,22 @@ class ImageGridWindow(QMainWindow):
             else:
                 print(f"Image {img_name} not found.")
 
+    def show_context_menu(self, pos, img_name, label):
+        menu = QMenu(self)
+        
+        # Add actions
+        # find_source = menu.addAction("Find Original Source")
+        view_action = menu.addAction("View Full Size")
+        find_similar = menu.addAction("Find Similar Images")
+        
+        # # Connect actions to functions
+        # find_source.triggered.connect(lambda: self.on_image_click(img_name, label))
+        # view_action.triggered.connect(lambda: self.view_full_size(img_name))
+        find_similar.triggered.connect(lambda: get_closest_texts(img_name))
+        
+        # Show the menu at cursor position
+        menu.exec_(QCursor.pos())
+
     def open_moodboard(self):
         if not self.selected_images:
             QMessageBox.warning(self, "Error", "No images selected.")
@@ -242,20 +339,49 @@ class ImageGridWindow(QMainWindow):
         self.moodboard_window = MoodboardCanvasWindow(selected_image_paths)
         self.moodboard_window.show()
 
-class ImageLoaderThread(QThread):
-    finished = pyqtSignal(list)  # Signal to emit when loading is complete
+        def start_button_clicked(self):
+        input_text = self.input_box.text()
+        if not input_text:
+            QMessageBox.warning(self, "Error", "Please enter a prompt.")
+            return
 
-    def __init__(self, image_paths):
-        super().__init__()
-        self.image_paths = image_paths
+        # Show progress bar
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.start_button.setEnabled(False)
+        
+        # Start matching with progress updates
+        match_query(input_text, self.progress_signal)
 
-    def run(self):
-        pixmaps = []
-        for image_path in self.image_paths:
-            pixmap = QPixmap(image_path)
-            if not pixmap.isNull():
-                pixmaps.append(pixmap)
-        self.finished.emit(pixmaps)  # Emit the loaded pixmaps
+
+    ## Immigrating features
+    def start_button_clicked(self):
+        input_text = self.input_box.text()
+        if not input_text:
+            QMessageBox.warning(self, "Error", "Please enter a prompt.")
+            return
+
+        # Show progress bar
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.start_button.setEnabled(False)
+        
+        # Start matching with progress updates
+        match_query(input_text, self.progress_signal)
+   
+    def update_progress(self, current, total):
+        percent = int((current / total) * 100)
+        self.progress_bar.setValue(percent)
+
+    def on_similarity_complete(self, results):
+        self.progress_bar.setVisible(False)
+        self.start_button.setEnabled(True)
+        
+        # Pass results to the image grid window
+        self.image_grid_window = ImageGridWindow(self.input_box.text(), results)
+        self.image_grid_window.show()
+
+    ## Immigrating
 
 class ResizablePixmapItem(QGraphicsPixmapItem):
     def __init__(self, pixmap):
@@ -340,11 +466,7 @@ class MoodboardCanvasWindow(QMainWindow):
     def __init__(self, image_paths):
         super().__init__()
         self.setWindowTitle("Moodboard Canvas")
-
-        screen_geometry = QApplication.desktop().screenGeometry()
-        window_height = screen_geometry.height() - 100
-        window_width = screen_geometry.width() - 100
-        self.setGeometry(100, 100, window_width, window_height)
+        self.setGeometry(0, 0, sw, sh)
 
         # Create the main widget and layout
         self.main_widget = QWidget()
@@ -453,10 +575,10 @@ class MoodboardCanvasWindow(QMainWindow):
         print(f"Moodboard saved to {svg_file}")
 
     def deselect_all_items(self):
-        for item in self.scene.items():
-            item.setSelected(False)
+        self.selected_item = None
 
     def scene_to_svg(self):
+        # Ensure selection border doesn't appear in SVG
         self.deselect_all_items()
 
         generator = QSvgGenerator()
@@ -474,19 +596,14 @@ class MoodboardCanvasWindow(QMainWindow):
 
 # Main function
 def main():
-    global model, text_features_dict, image_features_dict, device
+    global text_features_dict, image_features_dict
 
-    # Load CLIP model
     model, preprocess = clip.load("ViT-B/32", device="cpu")
     device = "cpu"
 
-    # Load image embeddings
     image_features_dict = torch.load("image_embeddings.pt", map_location=torch.device('cpu'))
-
-    # Load text embeddings
     text_features_dict = torch.load("text_embeddings.pt", map_location=torch.device('cpu'))
 
-    # Start the app
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
