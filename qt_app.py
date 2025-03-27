@@ -11,7 +11,7 @@ from PyQt5.QtCore import Qt, QObject, QUrl, QThread, QRectF, QPointF, pyqtSignal
 from PyQt5.QtGui import QPixmap, QImage, QCursor, QKeySequence, QPainter
 from PyQt5.QtSvg import QSvgGenerator
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem, QShortcut, QProgressBar, QMenu
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem, QShortcut, QProgressBar, QProgressDialog, QMenu
 
 
 # Global variables
@@ -95,6 +95,22 @@ def get_closest_texts(image_name, top_k=5):
     print(sorted_texts)
     return [text for text, score in sorted_texts]
 
+def find_similar_images(target_img_name, top_k=16):  # Increased default to 16
+    global image_features_dict
+    
+    target_features = image_features_dict[target_img_name]
+    similarities = {}
+    
+    for img_name, features in image_features_dict.items():
+        if img_name != target_img_name:
+            similarity = torch.cosine_similarity(
+                target_features.unsqueeze(0),
+                features.unsqueeze(0),
+                dim=-1
+            ).item()
+            similarities[img_name] = similarity
+    
+    return sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:top_k]
 
 class ProgressSignal(QObject):
     progress_updated = pyqtSignal(int, int)  # (current, total)
@@ -222,11 +238,26 @@ class ImageGridWindow(QMainWindow):
             self.match_results = match_results
             self.create_image_grid()
 
+        self.reference_image = input_text if isinstance(input_text, str) else None
+
     def create_image_grid(self):
-        top_k = 16
-        top_n = 50
-        random_subset = random.sample(self.match_results[:top_n], top_k)
-        image_files = [img for img, score in random_subset]
+        if not self.match_results:
+            QMessageBox.warning(self, "Error", "No images found matching the criteria")
+            return
+    
+        # Calculate how many images we can actually show
+        available_images = len(self.match_results)
+        top_k = min(16, available_images)
+        top_n = min(50, available_images)
+        
+        # Get random subset (now guaranteed to work)
+        if available_images <= top_k:
+            # If we have few images, just show them all
+            image_files = [img for img, score in self.match_results]
+        else:
+            # Otherwise get a random sample
+            random_subset = random.sample(self.match_results[:top_n], top_k)
+            image_files = [img for img, score in random_subset]
 
         num_columns = 4  
         image_size = 250  
@@ -261,8 +292,8 @@ class ImageGridWindow(QMainWindow):
             self.grid_layout.addWidget(label, row, column, alignment=Qt.AlignCenter)
 
     def shuffle_images(self):
-        top_k = 16
-        top_n = 50
+        top_k = min(16, available_images)
+        top_n = min(50, available_images)
         random_subset = random.sample(self.match_results[:top_n], top_k)
         image_files = [img for img, score in random_subset]
         image_size = 250
@@ -311,6 +342,43 @@ class ImageGridWindow(QMainWindow):
             else:
                 print(f"Image {img_name} not found.")
 
+    def show_similar(self, img_name):
+        progress = QProgressDialog("Finding similar images...", None, 0, 0, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.show()
+        
+        QApplication.processEvents()
+        
+        # Get visually similar images first
+        similar_images = find_similar_images(img_name, top_k=16)  # Get max we might need
+        text_descriptions = get_closest_texts(img_name, top_k=3)  # Get top 3 text descriptors
+        
+        # If we don't have enough visually similar images, supplement with text-based matches
+        if len(similar_images) < 16 and text_descriptions:
+            # Use the most relevant text descriptor to find additional matches
+            text_based_matches = match_query(text_descriptions[0], None)
+            
+            # Filter out images already in similar_images and the original image
+            existing_images = {img for img, _ in similar_images} | {img_name}
+            additional_matches = [
+                (img, score) for img, score in text_based_matches 
+                if img not in existing_images
+            ][:16 - len(similar_images)]
+            
+            similar_images.extend(additional_matches)
+        
+        progress.close()
+        
+        if similar_images:
+            # Show similarity scores in tooltips
+            for img, score in similar_images:
+                print(f"{img}: {score:.3f}")
+                
+            self.similar_window = ImageGridWindow(f"Similar to {img_name}", similar_images)
+            self.similar_window.show()
+        else:
+            QMessageBox.warning(self, "Error", "No similar images found")
+        
     def show_context_menu(self, pos, img_name, label):
         menu = QMenu(self)
         
@@ -322,7 +390,7 @@ class ImageGridWindow(QMainWindow):
         # # Connect actions to functions
         # find_source.triggered.connect(lambda: self.on_image_click(img_name, label))
         # view_action.triggered.connect(lambda: self.view_full_size(img_name))
-        find_similar.triggered.connect(lambda: get_closest_texts(img_name))
+        find_similar.triggered.connect(lambda: self.show_similar(img_name))
         
         # Show the menu at cursor position
         menu.exec_(QCursor.pos())
@@ -340,18 +408,18 @@ class ImageGridWindow(QMainWindow):
         self.moodboard_window.show()
 
         def start_button_clicked(self):
-        input_text = self.input_box.text()
-        if not input_text:
-            QMessageBox.warning(self, "Error", "Please enter a prompt.")
-            return
+            input_text = self.input_box.text()
+            if not input_text:
+                QMessageBox.warning(self, "Error", "Please enter a prompt.")
+                return
 
-        # Show progress bar
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
-        self.start_button.setEnabled(False)
-        
-        # Start matching with progress updates
-        match_query(input_text, self.progress_signal)
+            # Show progress bar
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(0)
+            self.start_button.setEnabled(False)
+            
+            # Start matching with progress updates
+            match_query(input_text, self.progress_signal)
 
 
     ## Immigrating features
