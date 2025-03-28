@@ -5,6 +5,6 @@ clipenv
 build
 dis
 venv
-_internal
+*_internal
 *.exe
 *.zip
