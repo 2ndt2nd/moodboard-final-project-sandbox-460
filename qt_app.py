@@ -41,7 +41,6 @@ def match_query(input_query, progress_signal=None):
 
     # Check if results are already cached
     if input_query in prompt_results_cache:
-        print("Using cached results for:", input_query)
         if progress_signal:
             progress_signal.finished.emit(prompt_results_cache[input_query])
         return prompt_results_cache[input_query]
