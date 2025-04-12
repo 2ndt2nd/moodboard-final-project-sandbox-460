@@ -1,22 +1,10 @@
+# Dataset
+https://www.kaggle.com/datasets/stevenevan99/pixiv-top-daily-illustration-2020
+
 # How to Run:
-!! Still Working It Out !!
-Place all illustrations in folder "illustration_dataset"
-
-# Dependencies
-python -m pip install --upgrade pip
-pip install psutil
-pip install ipykernel     
-pip install git+https://github.com/openai/CLIP.git
-
-
-$pip install pytorch torchvision torchaudio cudatoolkit=11.0 -c pytorch
-
-$ pip install jupyter
-$ pip install pillow
-$ pip install git+https://github.com/openai/CLIP.git
-$ pip install clip-by-openai
-
-## Useful Commands
-Check cuda version $ nvcc --version
-
-conda install --yes -c pytorch pytorch=1.7.1 torchvision cudatoolkit=11.0
+1. Place all illustrations in folder "illustration_dataset"
+    - Alternatively, cut and paste the dataset folder after extraction
+    - Ensure the folder is named "illustration_dataset"
+2. Ensure the correct image_embeddings.pt is present for the used illustration set
+3. Having the correct text_embeddings.pt will allow better search functionality for the intended result
+4. Run qt_app.exe

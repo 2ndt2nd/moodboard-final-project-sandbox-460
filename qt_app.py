@@ -18,7 +18,6 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushB
 image_folder = "illustration_dataset"  # Change to your actual image folder
 text_features_dict = {}
 image_features_dict = {}
-sg = None
 sh = 0
 sw = 0
 model, preprocess = clip.load("ViT-B/32", device="cpu")
@@ -120,17 +119,19 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
 
-        sg = QApplication.desktop().screenGeometry()
+        screen = QApplication.primaryScreen()  # Modern approach
+        sg = screen.geometry()
+        sw, sh = sg.width(), sg.height()
         sw = sg.width()
         sh = sg.height()
-        self.setWindowTitle("Welcome")
+        self.setWindowTitle("MoodForager")
         self.setGeometry(sw//2, sh//2, 400, 200)
 
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
         self.layout = QVBoxLayout(self.main_widget)
 
-        self.title_label = QLabel("Write out your moodboard prompts!")
+        self.title_label = QLabel("MoodForager: Jumpstart your drawing moodboard!")
         self.title_label.setStyleSheet("font-size: 30px; font-weight: bold; font-family: Arial;")
         self.layout.addWidget(self.title_label)
 
@@ -138,6 +139,7 @@ class MainWindow(QMainWindow):
         self.layout.addWidget(self.input_label)
 
         self.input_box = QLineEdit()
+        self.input_box.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
         self.layout.addWidget(self.input_box)
 
         self.progress_bar = QProgressBar()
@@ -151,6 +153,7 @@ class MainWindow(QMainWindow):
 
         # Add a start button
         self.start_button = QPushButton("Start")
+        self.start_button.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
         self.start_button.clicked.connect(self.start_button_clicked)
         self.layout.addWidget(self.start_button)
 
@@ -193,7 +196,7 @@ class ImageGridWindow(QMainWindow):
     def __init__(self, input_text, match_results=None, main_window=None):
         super().__init__()
         self.main_window = main_window
-        self.setWindowTitle("Image Grid")
+        self.setWindowTitle("Select Images")
 
         self.setGeometry(0, 0, sw, sh)
 
@@ -207,7 +210,7 @@ class ImageGridWindow(QMainWindow):
         self.layout = QVBoxLayout(self.main_widget)
 
         # Add a label for the grid
-        self.grid_label = QLabel(input_text)
+        self.grid_label = QLabel("Prompt: "+input_text)
         self.grid_label.setStyleSheet("font-size: 20px; font-weight: bold;")
         self.layout.addWidget(self.grid_label)
 
@@ -222,17 +225,20 @@ class ImageGridWindow(QMainWindow):
         self.grid_layout = QGridLayout(self.scroll_widget)
 
         # Create Shuffle button
-        self.shuffle_button = QPushButton("Shuffle!")
+        self.shuffle_button = QPushButton("Shuffle")
+        self.shuffle_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.shuffle_button.clicked.connect(self.shuffle_images)
         self.layout.addWidget(self.shuffle_button)
 
         # Create Copy button
-        self.copy_button = QPushButton("Copy!")
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.copy_button.clicked.connect(self.copy_selected_images)
         self.layout.addWidget(self.copy_button)
 
         # Create Moodboard button
         self.open_moodboard_button = QPushButton("Open Moodboard")
+        self.open_moodboard_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.open_moodboard_button.clicked.connect(self.open_moodboard)
         self.layout.addWidget(self.open_moodboard_button)
 
@@ -369,17 +375,12 @@ class ImageGridWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "Error", "No similar images found")
         
+    # Context menu to add finding similar image option    
     def show_context_menu(self, pos, img_name, label):
         menu = QMenu(self)
-        
-        # Add actions
-        # find_source = menu.addAction("Find Original Source")
-        view_action = menu.addAction("View Full Size")
         find_similar = menu.addAction("Find Similar Images")
         
         # # Connect actions to functions
-        # find_source.triggered.connect(lambda: self.on_image_click(img_name, label))
-        # view_action.triggered.connect(lambda: self.view_full_size(img_name))
         find_similar.triggered.connect(lambda: self.show_similar(img_name))
         
         # Show the menu at cursor position
@@ -509,7 +510,10 @@ class MoodboardCanvasWindow(QMainWindow):
     def __init__(self, image_paths=None):
         super().__init__()
         self.setWindowTitle("Moodboard Canvas")
-        self.setGeometry(0, 0, sw, sh)
+        mbh = sh
+        if(sh>500):
+            mbh-300
+        self.setGeometry(0, 0, sw, mbh)
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
         self.layout = QVBoxLayout(self.main_widget)
@@ -524,21 +528,25 @@ class MoodboardCanvasWindow(QMainWindow):
 
         # Zoom Out button
         self.zoom_out_button = QPushButton("Zoom Out")
+        self.zoom_out_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.zoom_out_button.clicked.connect(self.zoom_out)
         self.layout.addWidget(self.zoom_out_button)
 
         # Zoom In button
         self.zoom_in_button = QPushButton("Zoom In")
+        self.zoom_in_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.zoom_in_button.clicked.connect(self.zoom_in)
         self.layout.addWidget(self.zoom_in_button)
 
         # Clear Board button
         self.clear_board_button = QPushButton("Clear Canvas")
+        self.clear_board_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.clear_board_button.clicked.connect(self.clear_board)
         self.layout.addWidget(self.clear_board_button)
 
         # Reset Zoom button
         self.reset_zoom_button = QPushButton("Reset Zoom")
+        self.reset_zoom_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.reset_zoom_button.clicked.connect(self.reset_zoom)
         self.layout.addWidget(self.reset_zoom_button)
 
@@ -577,6 +585,7 @@ class MoodboardCanvasWindow(QMainWindow):
             
         # Add Save button
         self.save_button = QPushButton("Save Moodboard as SVG")
+        self.save_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.save_button.clicked.connect(self.save_moodboard)
         self.layout.addWidget(self.save_button)
 
