@@ -9,13 +9,7 @@ jobs:
   build:
     runs-on: macos-latest
     
-    permissions:
-      contents: read
-      packages: read
-      actions: read
-      
     steps:
-      # Consistent v4 for all GitHub actions
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -24,6 +18,7 @@ jobs:
         with:
           python-version: "3.10"
           cache: 'pip'
+          cache-dependency-path: ''
 
       - name: Install dependencies
         run: |
@@ -31,11 +26,18 @@ jobs:
           pip install py2app PyQt5 torch clip tqdm
           pip install --pre torch --extra-index-url https://download.pytorch.org/whl/nightly/cpu
 
+      - name: Create setup.py if not exists
+        run: |
+          if [ ! -f setup.py ]; then
+            echo "from setuptools import setup\n\nAPP = ['qt_app.py']\nDATA_FILES = []\nOPTIONS = {'argv_emulation': False, 'packages': ['PyQt5', 'torch', 'clip', 'tqdm']}\n\nsetup(\n    app=APP,\n    data_files=DATA_FILES,\n    options={'py2app': OPTIONS},\n    setup_requires=['py2app'],\n)" > setup.py
+          fi
+
       - name: Build with py2app
         run: |
-          python setup.py py2app
+          # Increase recursion limit temporarily for the build
+          python -c "import sys; sys.setrecursionlimit(5000)"
+          python setup.py py2app --no-strip
 
-      # Using v4 consistently
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

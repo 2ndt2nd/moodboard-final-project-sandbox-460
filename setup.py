@@ -1,22 +1,26 @@
 from setuptools import setup
+import py2app
 
-APP = ["qt_app.py"]
-DATA_FILES = []  # Empty! No files bundled.
+APP = ['qt_app.py']
+DATA_FILES = []
 OPTIONS = {
-    "argv_emulation": False,  # Disable for PyQt apps
-    "packages": ["PyQt5", "torch", "clip", "tqdm"],
-    "includes": ["PyQt5.QtWebEngineWidgets"],
-    "plist": {
-        "CFBundleName": "MoodForager",
-        "CFBundleDisplayName": "MoodForager",
-        "CFBundleIdentifier": "com.yourname.moodforager",
-        "NSHighResolutionCapable": "True"  # Retina support
-    }
+    'argv_emulation': False,
+    'packages': ['PyQt5', 'torch', 'clip', 'tqdm'],
+    'excludes': ['tkinter'],
+    'plist': {
+        'CFBundleName': 'MoodForager',
+        'CFBundleDisplayName': 'MoodForager',
+        'CFBundleVersion': '1.0.0',
+        'CFBundleShortVersionString': '1.0.0',
+        'NSHumanReadableCopyright': 'Copyright © 2023 Your Name',
+    },
+    'iconfile': 'app_icon.icns',  # Add if you have an icon
+    'optimize': 2,
 }
 
 setup(
     app=APP,
-    data_files=DATA_FILES,  # Nothing extra included
-    options={"py2app": OPTIONS},
-    setup_requires=["py2app"],
+    data_files=DATA_FILES,
+    options={'py2app': OPTIONS},
+    setup_requires=['py2app'],
 )
