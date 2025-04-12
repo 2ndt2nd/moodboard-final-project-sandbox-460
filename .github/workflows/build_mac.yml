@@ -1,18 +1,18 @@
 name: Build macOS App
 
-on: [push]  # Runs every time you push to GitHub
+on: [push]
 
 jobs:
   build:
-    runs-on: macos-latest  # Uses Apple's cloud machines
+    runs-on: macos-latest
     
     steps:
-      # 1. Checkout your code
-      - uses: actions/checkout@v2
+      # 1. Checkout code (updated to v3)
+      - uses: actions/checkout@v3
 
-      # 2. Install Python 3.9
+      # 2. Install Python
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: "3.9"
 
@@ -21,14 +21,14 @@ jobs:
         run: |
           pip install py2app PyQt5 torch clip tqdm
 
-      # 4. Build the macOS app
+      # 4. Build the app
       - name: Run py2app
         run: |
           python setup.py py2app
 
-      # 5. Upload the app as a downloadable artifact
+      # 5. Upload artifact (updated to v3)
       - name: Upload MoodForager.app
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: MoodForager-Mac
           path: dist/MoodForager.app
