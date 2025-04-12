@@ -2,7 +2,7 @@ name: Build macOS App
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -15,11 +15,12 @@ jobs:
       actions: read
       
     steps:
+      # Consistent v4 for all GitHub actions
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: "3.10"
           cache: 'pip'
@@ -34,6 +35,7 @@ jobs:
         run: |
           python setup.py py2app
 
+      # Using v4 consistently
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
