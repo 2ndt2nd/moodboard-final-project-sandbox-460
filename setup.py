@@ -1,5 +1,4 @@
 from setuptools import setup
-import py2app
 
 APP = ['qt_app.py']
 DATA_FILES = []
@@ -14,7 +13,7 @@ OPTIONS = {
         'CFBundleShortVersionString': '1.0.0',
         'NSHumanReadableCopyright': 'Copyright © 2023 Your Name',
     },
-    'iconfile': 'app_icon.icns',  # Add if you have an icon
+    # Remove this line: 'iconfile': 'app_icon.icns',
     'optimize': 2,
 }
 
