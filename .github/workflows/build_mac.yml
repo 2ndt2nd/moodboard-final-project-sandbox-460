@@ -7,36 +7,42 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-14  # Explicitly use macOS Sonoma (latest stable)
     
     permissions:
       contents: read
-      packages: read
       actions: read
       
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1 pinned
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@d27e3f3d7c64b4bbf8e4abfb9b63b83e846e0435  # v5.0.0 pinned
         with:
           python-version: "3.10"
           cache: 'pip'
+          cache-dependency-path: 'setup.py'
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install py2app PyQt5 torch clip tqdm
-          pip install --pre torch --extra-index-url https://download.pytorch.org/whl/nightly/cpu
+          brew install libomp
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install py2app PyQt5 tqdm
+          pip install torch==2.2.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install git+https://github.com/openai/CLIP.git
 
       - name: Build with py2app
         run: |
           python setup.py py2app
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce  # v4.3.3 pinned
         with:
           name: MoodForager-Mac
           path: dist/MoodForager.app
-          retention-days: 5
+          if-no-files-found: error
+          retention-days: 3
