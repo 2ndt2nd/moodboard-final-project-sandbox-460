@@ -26,6 +26,14 @@ device = "cpu"
 # Global dictionary to store sorted results for each prompt
 prompt_results_cache = {}
 
+def create_click_handler(parent, img_name, label):
+    def handler(event):
+        if event.button() == Qt.LeftButton:
+            parent.on_image_click(img_name, label)
+        elif event.button() == Qt.RightButton:
+            parent.show_context_menu(event.pos(), img_name, label)
+    return handler
+
 # Function to extract text features
 def extract_text_features(text):
     text_tokenized = clip.tokenize([text]).to(device)
@@ -280,14 +288,7 @@ class ImageGridWindow(QMainWindow):
             label = QLabel()
             label.setPixmap(pixmap)
             label.setStyleSheet("border: 0px solid transparent;")
-            label.mousePressEvent = lambda event, name=img_file, lbl=label: (
-                self.on_image_click(name, lbl) 
-                if event.button() == Qt.LeftButton 
-                else (
-                    self.show_context_menu(event.pos(), name, lbl) 
-                    if event.button() == Qt.RightButton 
-                else None)
-                )
+            label.mousePressEvent = create_click_handler(self, img_file, label)
         
             row = idx // num_columns
             column = idx % num_columns
@@ -309,14 +310,7 @@ class ImageGridWindow(QMainWindow):
             label = self.grid_layout.itemAt(idx).widget()
             label.setPixmap(pixmap)
             label.setStyleSheet("border: 0px solid transparent;")
-            label.mousePressEvent = lambda event, name=img_file, lbl=label: (
-                self.on_image_click(name, lbl) 
-                if event.button() == Qt.LeftButton 
-                else (
-                    self.show_context_menu(event.pos(), name, lbl) 
-                    if event.button() == Qt.RightButton 
-                else None)
-                )
+            label.mousePressEvent = create_click_handler(self, img_file, label)
             
     def on_image_click(self, img_name, label):
         if img_name in self.selected_images:
