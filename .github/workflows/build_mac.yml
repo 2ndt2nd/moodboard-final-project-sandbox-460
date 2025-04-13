@@ -25,19 +25,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install py2app PyQt5 torch clip tqdm
           pip install --pre torch --extra-index-url https://download.pytorch.org/whl/nightly/cpu
-
       - name: Create setup.py if not exists
         run: |
           if [ ! -f setup.py ]; then
             echo "from setuptools import setup\n\nAPP = ['qt_app.py']\nDATA_FILES = []\nOPTIONS = {'argv_emulation': False, 'packages': ['PyQt5', 'torch', 'clip', 'tqdm']}\n\nsetup(\n    app=APP,\n    data_files=DATA_FILES,\n    options={'py2app': OPTIONS},\n    setup_requires=['py2app'],\n)" > setup.py
           fi
-
       - name: Build with py2app
         run: |
           # Increase recursion limit temporarily for the build
           python -c "import sys; sys.setrecursionlimit(5000)"
           python setup.py py2app --no-strip
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
