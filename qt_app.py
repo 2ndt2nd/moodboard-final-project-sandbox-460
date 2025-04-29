@@ -267,11 +267,12 @@ class ImageGridWindow(QMainWindow):
         top_n = min(50, available_images)
         
 
-        if available_images <= top_k:
-            image_files = [img for img, score in self.match_results]
-        else:
-            random_subset = random.sample(self.match_results[:top_n], top_k)
-            image_files = [img for img, score in random_subset]
+        def get_image_subset(results, available, top_k, top_n):
+            if available <= top_k:
+                return [img for img, _ in results]
+            return [img for img, _ in random.sample(results[:top_n], top_k)]
+
+        image_files = get_image_subset(self.match_results, available_images, top_k, top_n)
 
         num_columns = 4  
         image_size = 250  
