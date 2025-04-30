@@ -139,9 +139,19 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.main_widget)
         self.layout = QVBoxLayout(self.main_widget)
 
-        self.title_label = QLabel("MoodForager: Jumpstart your drawing moodboard!")
+        self.title_label = QLabel("MoodForager: Empowering Moodboards for Creatives")
         self.title_label.setStyleSheet("font-size: 30px; font-weight: bold; font-family: Arial;")
         self.layout.addWidget(self.title_label)
+
+        intro_label = QLabel(
+            "MoodForager allows you to quickly create moodboards and accelerate your creative ideation!\n"
+            "- Retrieve images from a local library by selecting text\n"
+            "- Select images to power your ideation\n"
+            "- Find similar images to expand your search\n"
+            "- Arrange your own moodboards and start working in no time!"
+        )
+        intro_label.setStyleSheet("font-size: 15px; padding: 3px; color: black;")
+        self.layout.addWidget(intro_label)
 
         self.input_label = QLabel("Enter your prompt:")
         self.layout.addWidget(self.input_label)
@@ -167,6 +177,20 @@ class MainWindow(QMainWindow):
 
         self.start_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
         self.start_shortcut.activated.connect(self.start_button_clicked)
+
+        reference_label = QLabel(
+            "Dataset taken from https://github.com/BathVisArtData/PeopleArt with minor adjustments\n\n"
+            "@inproceedings{westlake2016detecting,\n"
+            "title={Detecting People in Artwork with CNNs},\n"
+            "author={Westlake, Nicholas and Cai, Hongping and Hall, Peter},\n"
+            "booktitle={European Conference on Computer Vision},\n"
+            "pages={825--841},\n"
+            "year={2016},\n"
+            "organization={Springer}\n"
+            "}"
+        )
+        reference_label.setStyleSheet("font-size: 9px; padding: 4px; color: gray;")
+        self.layout.addWidget(reference_label)
 
         self.moodboard_window = None
 
@@ -208,8 +232,8 @@ class ImageGridWindow(QMainWindow):
         super().__init__()
         self.main_window = main_window
         self.setWindowTitle("Select Images")
-
-        self.setGeometry(0, 0, sw, sh)
+        self.setGeometry(0, 0, sw-200, sh-200)
+        self.showMaximized()
 
         self.input_text = input_text
         self.selected_images = {}
@@ -225,6 +249,12 @@ class ImageGridWindow(QMainWindow):
         self.grid_label.setStyleSheet("font-size: 20px; font-weight: bold;")
         self.layout.addWidget(self.grid_label)
 
+        hint_label = QLabel(
+            "Try right clicking for option to search for similar images!"
+        )
+        hint_label.setStyleSheet("font-size: 15px; padding: 2px; color: black;")
+        self.layout.addWidget(hint_label)
+
         # Create a scroll area for the image grid
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -235,23 +265,28 @@ class ImageGridWindow(QMainWindow):
         self.scroll_area.setWidget(self.scroll_widget)
         self.grid_layout = QGridLayout(self.scroll_widget)
 
+        # Add Horizontal button row
+        button_row = QHBoxLayout()
+
         # Create Shuffle button
         self.shuffle_button = QPushButton("Shuffle")
         self.shuffle_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.shuffle_button.clicked.connect(self.shuffle_images)
-        self.layout.addWidget(self.shuffle_button)
+        button_row.addWidget(self.shuffle_button)
 
         # Create Copy button
-        self.copy_button = QPushButton("Copy")
+        self.copy_button = QPushButton("Copy to Folder")
         self.copy_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.copy_button.clicked.connect(self.copy_selected_images)
-        self.layout.addWidget(self.copy_button)
+        button_row.addWidget(self.copy_button)
 
         # Create Moodboard button
-        self.open_moodboard_button = QPushButton("Open Moodboard")
+        self.open_moodboard_button = QPushButton("Copy to Moodboard")
         self.open_moodboard_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.open_moodboard_button.clicked.connect(self.open_moodboard)
-        self.layout.addWidget(self.open_moodboard_button)
+        button_row.addWidget(self.open_moodboard_button)
+
+        self.layout.addLayout(button_row)
 
         # Add images to the grid
         if match_results:  # Use provided results if available
@@ -511,7 +546,8 @@ class MoodboardCanvasWindow(QMainWindow):
         mbh = sh
         if(sh>500):
             mbh-300
-        self.setGeometry(0, 0, sw, mbh)
+        self.setGeometry(0, 0, 1000, mbh)
+        self.showMaximized()
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
         self.layout = QVBoxLayout(self.main_widget)
@@ -524,29 +560,71 @@ class MoodboardCanvasWindow(QMainWindow):
         self.selected_item = None
         self.highest_z_value = 0
 
+
+        
+
+        # Addding images to scene
+        if image_paths:
+            last_width_pos = 0
+            for idx, image_path in enumerate(image_paths):
+                pixmap = QPixmap(image_path)
+                if not pixmap.isNull() and image_path not in self.moodboard_items:
+                    last_width_pos += pixmap.width()
+                    resizable_item = ResizablePixmapItem(pixmap)
+                    resizable_item.setPos(last_width_pos + 50, 0)
+                    self.scene.addItem(resizable_item)
+                    resizable_item.setFlag(QGraphicsItem.ItemIsSelectable, True)
+                    resizable_item.mousePressEvent = lambda event, item=resizable_item: self.select_item(item)
+                    self.moodboard_items.append(image_path)
+                
+        # Add Horizontal button row
+        button_row = QHBoxLayout()
+        
         # Zoom Out button
         self.zoom_out_button = QPushButton("Zoom Out")
         self.zoom_out_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.zoom_out_button.clicked.connect(self.zoom_out)
-        self.layout.addWidget(self.zoom_out_button)
+        
 
         # Zoom In button
         self.zoom_in_button = QPushButton("Zoom In")
         self.zoom_in_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.zoom_in_button.clicked.connect(self.zoom_in)
-        self.layout.addWidget(self.zoom_in_button)
+        
 
         # Clear Board button
         self.clear_board_button = QPushButton("Clear Canvas")
         self.clear_board_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.clear_board_button.clicked.connect(self.clear_board)
-        self.layout.addWidget(self.clear_board_button)
+        
 
         # Reset Zoom button
         self.reset_zoom_button = QPushButton("Reset Zoom")
         self.reset_zoom_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.reset_zoom_button.clicked.connect(self.reset_zoom)
-        self.layout.addWidget(self.reset_zoom_button)
+
+        # Add Save button
+        self.save_button = QPushButton("Save Moodboard as SVG")
+        self.save_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
+        self.save_button.clicked.connect(self.save_moodboard)
+
+        shortcut_hints = QLabel(
+            "Shortcuts:\n"
+            "  Ctrl + = : Zoom In  |  Ctrl + - : Zoom Out  |  Ctrl + 0 : Reset Zoom\n"
+            "  Ctrl + Scroll Wheel : Adjust Zoom\n"
+            "  - / = : Scale Image Down / Up\n"
+            "  Select Image + Backspace : Remove Selected Image\n"
+            "  Spacebar  : Hold to Pan the Canvas"
+        )
+        shortcut_hints.setStyleSheet("font-size: 13px; padding: 3px; color: black;")
+        self.layout.addWidget(shortcut_hints)
+        
+        button_row.addWidget(self.zoom_out_button)
+        button_row.addWidget(self.zoom_in_button)
+        button_row.addWidget(self.clear_board_button)
+        button_row.addWidget(self.reset_zoom_button)
+        button_row.addWidget(self.save_button)
+        self.layout.addLayout(button_row)
 
         # Shortcuts for zooming
         self.zoom_in_shortcut = QShortcut(QKeySequence("Ctrl+="), self)
@@ -565,27 +643,6 @@ class MoodboardCanvasWindow(QMainWindow):
         # Shortcuts for removing the selected image
         self.remove_image_shortcut = QShortcut(QKeySequence(Qt.Key_Backspace), self)
         self.remove_image_shortcut.activated.connect(self.remove_image)
-
-        # Addding images to scene
-        if image_paths:
-            last_width_pos = 0
-            for idx, image_path in enumerate(image_paths):
-                pixmap = QPixmap(image_path)
-                if not pixmap.isNull() and image_path not in self.moodboard_items:
-                    last_width_pos += pixmap.width()
-                    resizable_item = ResizablePixmapItem(pixmap)
-                    resizable_item.setPos(last_width_pos + 50, 0)
-                    self.scene.addItem(resizable_item)
-                    resizable_item.setFlag(QGraphicsItem.ItemIsSelectable, True)
-                    resizable_item.mousePressEvent = lambda event, item=resizable_item: self.select_item(item)
-                    self.moodboard_items.append(image_path)
-                
-            
-        # Add Save button
-        self.save_button = QPushButton("Save Moodboard as SVG")
-        self.save_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.save_button.clicked.connect(self.save_moodboard)
-        self.layout.addWidget(self.save_button)
 
     def select_item(self, item):
         """Set the selected item and bring it to the topmost layer."""
