@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushB
 
 
 # Global variables
-image_folder = "illustration_dataset"  # Change to your actual image folder
+image_folder = "images_dataset"  # Change to your actual image folder
 text_features_dict = {}
 image_features_dict = {}
 sh = 0
@@ -164,6 +164,9 @@ class MainWindow(QMainWindow):
         self.start_button.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
         self.start_button.clicked.connect(self.start_button_clicked)
         self.layout.addWidget(self.start_button)
+
+        self.start_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
+        self.start_shortcut.activated.connect(self.start_button_clicked)
 
         self.moodboard_window = None
 
@@ -676,8 +679,8 @@ def main():
     model, preprocess = clip.load("ViT-B/32", device="cpu")
     device = "cpu"
 
-    image_features_dict = torch.load("image_embeddings.pt", map_location=torch.device('cpu'))
-    text_features_dict = torch.load("text_embeddings.pt", map_location=torch.device('cpu'))
+    image_features_dict = torch.load("new_embeddings.pt", map_location=torch.device('cpu'), weights_only=True)
+    text_features_dict = torch.load("text_embeddings.pt", map_location=torch.device('cpu'), weights_only=True)
 
     app = QApplication(sys.argv)
     window = MainWindow()
