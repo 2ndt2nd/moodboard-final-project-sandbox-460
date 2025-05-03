@@ -179,6 +179,7 @@ class MainWindow(QMainWindow):
         self.start_shortcut.activated.connect(self.start_button_clicked)
 
         reference_label = QLabel(
+            "Using CLIP by OpenAI\n\n"
             "Dataset taken from https://github.com/BathVisArtData/PeopleArt with minor adjustments\n\n"
             "@inproceedings{westlake2016detecting,\n"
             "title={Detecting People in Artwork with CNNs},\n"
