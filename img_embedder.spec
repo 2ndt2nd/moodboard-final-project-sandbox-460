@@ -2,11 +2,11 @@
 
 
 a = Analysis(
-    ['run.py'],
+    ['img_embedder.py'],
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=['clip'],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -21,7 +21,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='run',
+    name='img_embedder',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -40,5 +40,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='run',
+    name='img_embedder',
 )

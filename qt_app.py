@@ -127,7 +127,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
 
-        screen = QApplication.primaryScreen()  # Modern approach
+        screen = QApplication.primaryScreen()
         sg = screen.geometry()
         sw, sh = sg.width(), sg.height()
         sw = sg.width()
@@ -152,6 +152,18 @@ class MainWindow(QMainWindow):
         )
         intro_label.setStyleSheet("font-size: 15px; padding: 3px; color: black;")
         self.layout.addWidget(intro_label)
+
+        folder_layout = QHBoxLayout()
+        self.folder_label = QLabel("Target folder: Not selected")
+        self.folder_label.setStyleSheet("font-size: 12px;")
+        folder_layout.addWidget(self.folder_label)
+        
+        self.folder_button = QPushButton("Browse...")
+        self.folder_button.setStyleSheet("font-size: 12px; min-height: 25px; padding: 2px;")
+        self.folder_button.clicked.connect(self.select_folder)
+        folder_layout.addWidget(self.folder_button)
+        
+        self.layout.addLayout(folder_layout)
 
         self.input_label = QLabel("Enter your prompt:")
         self.layout.addWidget(self.input_label)
@@ -194,6 +206,27 @@ class MainWindow(QMainWindow):
         self.layout.addWidget(reference_label)
 
         self.moodboard_window = None
+        self.selected_folder = ""
+
+    def select_folder(self):
+        """Open a folder selection dialog and store the selected path"""
+        from PyQt5.QtWidgets import QFileDialog
+        
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Select Target Folder",
+            "",  # Start in current directory
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+        )
+        
+        if folder:  # If user didn't cancel
+            self.selected_folder = folder
+            self.folder_label.setText(f"Target folder: {folder}")
+            self.folder_label.setToolTip(folder)  # Show full path on hover
+            
+            # Update the global image_folder if you want to use the selected folder
+            global image_folder
+            image_folder = folder
 
     def closeEvent(self, event):
         QApplication.quit()
@@ -511,8 +544,8 @@ class CustomGraphicsView(QGraphicsView):
             # Pan the view
             delta = self._pan_start_pos - event.pos()
             self._pan_start_pos = event.pos()
-            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + delta.x())
-            self.verticalScrollBar().setValue(self.verticalScrollBar().value() + delta.y())
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + int(delta.x()))
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() + int(delta.y()))
         else:
             super().mouseMoveEvent(event)
 
@@ -562,8 +595,6 @@ class MoodboardCanvasWindow(QMainWindow):
         self.highest_z_value = 0
 
 
-        
-
         # Addding images to scene
         if image_paths:
             last_width_pos = 0
@@ -585,29 +616,32 @@ class MoodboardCanvasWindow(QMainWindow):
         self.zoom_out_button = QPushButton("Zoom Out")
         self.zoom_out_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.zoom_out_button.clicked.connect(self.zoom_out)
+        button_row.addWidget(self.zoom_out_button)
         
-
         # Zoom In button
         self.zoom_in_button = QPushButton("Zoom In")
         self.zoom_in_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.zoom_in_button.clicked.connect(self.zoom_in)
+        button_row.addWidget(self.zoom_in_button)
         
-
         # Clear Board button
         self.clear_board_button = QPushButton("Clear Canvas")
         self.clear_board_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.clear_board_button.clicked.connect(self.clear_board)
+        button_row.addWidget(self.clear_board_button)
         
 
         # Reset Zoom button
         self.reset_zoom_button = QPushButton("Reset Zoom")
         self.reset_zoom_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.reset_zoom_button.clicked.connect(self.reset_zoom)
+        button_row.addWidget(self.reset_zoom_button)
 
         # Add Save button
         self.save_button = QPushButton("Save Moodboard as SVG")
         self.save_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.save_button.clicked.connect(self.save_moodboard)
+        button_row.addWidget(self.save_button)
 
         shortcut_hints = QLabel(
             "Shortcuts:\n"
@@ -615,16 +649,11 @@ class MoodboardCanvasWindow(QMainWindow):
             "  Ctrl + Scroll Wheel : Adjust Zoom\n"
             "  - / = : Scale Image Down / Up\n"
             "  Select Image + Backspace : Remove Selected Image\n"
-            "  Spacebar  : Hold to Pan the Canvas"
+            "  Spacebar  : Hold to Pan the Canvas\n"
+            "  Ctrl + S : Save Moodboard to SVG"
         )
         shortcut_hints.setStyleSheet("font-size: 13px; padding: 3px; color: black;")
         self.layout.addWidget(shortcut_hints)
-        
-        button_row.addWidget(self.zoom_out_button)
-        button_row.addWidget(self.zoom_in_button)
-        button_row.addWidget(self.clear_board_button)
-        button_row.addWidget(self.reset_zoom_button)
-        button_row.addWidget(self.save_button)
         self.layout.addLayout(button_row)
 
         # Shortcuts for zooming
@@ -644,6 +673,9 @@ class MoodboardCanvasWindow(QMainWindow):
         # Shortcuts for removing the selected image
         self.remove_image_shortcut = QShortcut(QKeySequence(Qt.Key_Backspace), self)
         self.remove_image_shortcut.activated.connect(self.remove_image)
+
+        self.save_shortcut = QShortcut(QKeySequence("Ctrl+s"), self)
+        self.save_shortcut.activated.connect(self.save_moodboard)
 
     def select_item(self, item):
         """Set the selected item and bring it to the topmost layer."""

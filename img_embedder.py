@@ -14,7 +14,7 @@ def extract_image_features(image_path, device, model, preprocess):
 def embed_image(device, model, preprocess, image_features_dict):
     # Load images and compute embeddings
     image_folder = "images_dataset"
-    embedding_file = "backup_image_embeddings.pt"
+    # embedding_file = "backup_image_embeddings.pt"
 
 
     # if os.path.exists(embedding_file):
@@ -60,8 +60,9 @@ def main():
     print(torch.cuda.device_count())  # Number of available 
 
     # Load image embeddings
-    image_features_dict = torch.load("image_embeddings.pt", map_location=torch.device(device))
-
+    # if os.path.exists("image_embeddings.pt"):
+    #     image_features_dict = torch.load("image_embeddings.pt", map_location=torch.device(device))
+    image_features_dict = {}
     embed_image(device, model, preprocess, image_features_dict)
 
     # # Start the app
