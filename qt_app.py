@@ -7,7 +7,7 @@ import threading
 import torch
 import clip
 from tqdm import tqdm
-from PyQt5.QtCore import Qt, QObject, QUrl, QThread, QRectF, QPointF, pyqtSignal
+from PyQt5.QtCore import Qt, QObject, QUrl, QThread, QRectF, QPointF, pyqtSignal, QTimer
 from PyQt5.QtGui import QPixmap, QImage, QCursor, QKeySequence, QPainter
 from PyQt5.QtSvg import QSvgGenerator
 from PyQt5.QtWebEngineWidgets import QWebEngineView
@@ -83,7 +83,7 @@ def match_query(input_query, progress_signal=None):
         thread.join()
         return prompt_results_cache[input_query]
 
-def get_closest_texts(image_name, top_k=5):
+def get_closest_texts(image_name, top_k=3):
     global text_features_dict, image_features_dict
     
     img_features = image_features_dict[image_name]
@@ -226,11 +226,28 @@ class MainWindow(QMainWindow):
                 return
                 
             try:
-                global image_features_dict, image_folder
-                image_features_dict = torch.load(embeddings_path, map_location=torch.device('cpu'), weights_only=True)
-                self.folder_label.setText(f"Target folder: {folder}")
-                self.folder_label.setToolTip(folder)
-                image_folder = folder
+                # Create and show progress dialog (matches your similar images style)
+                progress = QProgressDialog("Loading image embeddings...", None, 0, 0, self)
+                progress.setWindowModality(Qt.WindowModal)
+                progress.setCancelButton(None)  # No cancel button for this operation
+                progress.show()
+                
+                # Force UI update
+                QApplication.processEvents()
+                
+                # Load embeddings in a separate thread to keep UI responsive
+                def load_embeddings():
+                    global image_features_dict, image_folder
+                    image_features_dict = torch.load(embeddings_path, map_location=torch.device('cpu'), weights_only=True)
+                    image_folder = folder
+                    
+                    # Update UI in main thread
+                    self.folder_label.setText(f"Target folder: {folder}")
+                    self.folder_label.setToolTip(folder)
+                    progress.close()
+                
+                # Use QTimer to run the loading in background
+                QTimer.singleShot(100, load_embeddings)
 
             except Exception as e:
                 self.folder_label.setText(f"Error loading embeddings from {folder}")
@@ -348,7 +365,7 @@ class ImageGridWindow(QMainWindow):
     
         available_images = len(self.match_results)
         top_k = min(16, available_images)
-        top_n = min(50, available_images)
+        top_n = min(40, available_images)
         
 
         def get_image_subset(results, available, top_k, top_n):
@@ -382,7 +399,7 @@ class ImageGridWindow(QMainWindow):
     def shuffle_images(self):
         available_images = len(self.match_results)
         top_k = min(16, available_images)
-        top_n = min(50, available_images)
+        top_n = min(80, available_images)
         random_subset = random.sample(self.match_results[:top_n], top_k)
         image_files = [img for img, score in random_subset]
         image_size = 250
@@ -434,7 +451,9 @@ class ImageGridWindow(QMainWindow):
         similar_images = find_similar_images(img_name, top_k=16)  
         text_descriptions = get_closest_texts(img_name, top_k=3)  
         if len(similar_images) < 16 and text_descriptions:
-            text_based_matches = match_query(text_descriptions[0], None)
+            text_based_matches = []
+            for desc in text_descriptions[:2]:  # Use top 2 labels as a balance
+                text_based_matches.extend(match_query(desc, None))
             existing_images = {img for img, _ in similar_images} | {img_name}
             additional_matches = [
                 (img, score) for img, score in text_based_matches 
@@ -446,10 +465,7 @@ class ImageGridWindow(QMainWindow):
         progress.close()
         
         if similar_images:
-            for img, score in similar_images:
-                print(f"{img}: {score:.3f}")
-                
-            self.similar_window = ImageGridWindow(f"Similar to {img_name}", similar_images, main_window=self.main_window)
+            self.similar_window = ImageGridWindow(f"Similar to {img_name} and {text_descriptions}", similar_images, main_window=self.main_window)
             self.similar_window.show()
         else:
             QMessageBox.warning(self, "Error", "No similar images found")
@@ -781,7 +797,6 @@ def main():
     model, preprocess = clip.load("ViT-B/32", device="cpu")
     device = "cpu"
 
-    # image_features_dict = torch.load("new_embeddings.pt", map_location=torch.device('cpu'), weights_only=True)
     text_features_dict = torch.load("text_embeddings.pt", map_location=torch.device('cpu'), weights_only=True)
 
     app = QApplication(sys.argv)
