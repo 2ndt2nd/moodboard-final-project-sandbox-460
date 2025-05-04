@@ -17,14 +17,13 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushB
 # Global variables
 image_folder = ""  # Change to your actual image folder
 text_features_dict = {}
-image_features_dict = {}
 sh = 0
 sw = 0
 model, preprocess = clip.load("ViT-B/32", device="cpu")
 device = "cpu"
 
 # Global dictionary to store sorted results for each prompt
-prompt_results_cache = {}
+# prompt_results_cache = {}
 
 def create_click_handler(parent, img_name, label):
     def handler(event):
@@ -43,14 +42,14 @@ def extract_text_features(text):
     return text_features
 
 # Function to match a query
-def match_query(input_query, progress_signal=None):
-    global prompt_results_cache
+def match_query(image_features_dict, input_query, progress_signal=None):
+    # global prompt_results_cache
 
-    # Check if results are already cached
-    if input_query in prompt_results_cache:
-        if progress_signal:
-            progress_signal.finished.emit(prompt_results_cache[input_query])
-        return prompt_results_cache[input_query]
+    # # Check if results are already cached
+    # if input_query in prompt_results_cache:
+    #     if progress_signal:
+    #         progress_signal.finished.emit(prompt_results_cache[input_query])
+    #     return prompt_results_cache[input_query]
 
     # Get the text features for the query
     if input_query in text_features_dict:
@@ -58,7 +57,7 @@ def match_query(input_query, progress_signal=None):
     else:
         text_features = extract_text_features(input_query)
 
-    def compute_similarities():
+    def compute_similarities(image_features_dict):
         similarities = {}
         total_images = len(image_features_dict)  # Define total_images here
         
@@ -70,21 +69,24 @@ def match_query(input_query, progress_signal=None):
 
         # Sorting images and returning on finish
         sorted_images = sorted(similarities.items(), key=lambda x: x[1], reverse=True)
-        prompt_results_cache[input_query] = sorted_images
+        # prompt_results_cache[input_query] = sorted_images
         if progress_signal:
             progress_signal.finished.emit(sorted_images)
         
         return sorted_images
 
-    thread = threading.Thread(target=compute_similarities)
+    thread = threading.Thread(
+        target=compute_similarities,
+        args=(image_features_dict,)
+    )
     thread.start()
 
     if not progress_signal:  # Only wait if no signal is provided
         thread.join()
-        return prompt_results_cache[input_query]
+        return #prompt_results_cache[input_query]
 
-def get_closest_texts(image_name, top_k=3):
-    global text_features_dict, image_features_dict
+def get_closest_texts(image_features_dict, image_name, top_k=3):
+    global text_features_dict
     
     img_features = image_features_dict[image_name]
     similarities = {}
@@ -99,9 +101,7 @@ def get_closest_texts(image_name, top_k=3):
     sorted_texts = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:top_k]
     return [text for text, score in sorted_texts]
 
-def find_similar_images(target_img_name, top_k=16):  # Increased default to 16
-    global image_features_dict
-    
+def find_similar_images(image_features_dict, target_img_name, top_k=16):  # Increased default to 16
     target_features = image_features_dict[target_img_name]
     similarities = {}
     
@@ -134,6 +134,7 @@ class MainWindow(QMainWindow):
         sh = sg.height()
         self.setWindowTitle("MoodForager")
         self.setGeometry(sw//2, sh//2, 400, 200)
+        self.image_features_dict={}
 
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
@@ -237,8 +238,8 @@ class MainWindow(QMainWindow):
                 
                 # Load embeddings in a separate thread to keep UI responsive
                 def load_embeddings():
-                    global image_features_dict, image_folder
-                    image_features_dict = torch.load(embeddings_path, map_location=torch.device('cpu'), weights_only=True)
+                    global image_folder
+                    self.image_features_dict = torch.load(embeddings_path, map_location=torch.device('cpu'), weights_only=True)
                     image_folder = folder
                     
                     # Update UI in main thread
@@ -272,7 +273,7 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(False)
         
         # Start matching with progress updates
-        match_query(input_text, self.progress_signal)
+        match_query(self.image_features_dict, input_text, self.progress_signal)
    
     def update_progress(self, current, total):
         percent = int((current / total) * 100)
@@ -283,19 +284,23 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(True)
         
         # Pass results to the image grid window
-        self.image_grid_window = ImageGridWindow(self.input_box.text(), image_folder, results, main_window=self)
+        self.image_grid_window = ImageGridWindow(self.input_box.text(), image_folder, self.image_features_dict, results, main_window=self)
         self.image_grid_window.show()
 
 ## Subject for moving
 
 class ImageGridWindow(QMainWindow):
-    def __init__(self, input_text, class_folder, match_results=None, main_window=None):
+    def __init__(self, input_text, class_folder, image_features_dict, match_results=None, main_window=None):
         super().__init__()
         self.main_window = main_window
         self.setWindowTitle("Select Images")
-        self.setGeometry(0, 0, sw-200, sh-200)
+        fw=sw
+        if(sw>1200):
+            fw=1200
+        self.setGeometry(0, 0, fw, sh-100)
         self.showMaximized()
         self.image_folder = class_folder
+        self.image_features_dict = image_features_dict
 
         self.input_text = input_text
         self.selected_images = {}
@@ -375,7 +380,7 @@ class ImageGridWindow(QMainWindow):
         image_files = get_image_subset(self.match_results, available_images, top_k, top_n)
 
         num_columns = 4  
-        image_size = 250  
+        image_size = 300  
         padding = 10 
         window_width = num_columns * (image_size + padding)
         window_height = sg.height()-100
@@ -401,7 +406,7 @@ class ImageGridWindow(QMainWindow):
         top_n = min(80, available_images)
         random_subset = random.sample(self.match_results[:top_n], top_k)
         image_files = [img for img, score in random_subset]
-        image_size = 250
+        image_size = 300
 
         for idx, img_file in enumerate(image_files):
             image_path = os.path.join(self.image_folder, img_file)
@@ -447,12 +452,12 @@ class ImageGridWindow(QMainWindow):
         
         QApplication.processEvents()
         
-        similar_images = find_similar_images(img_name, top_k=16)  
-        text_descriptions = get_closest_texts(img_name, top_k=3)  
+        similar_images = find_similar_images(self.image_features_dict, img_name, top_k=16)  
+        text_descriptions = get_closest_texts(self.image_features_dict, img_name, top_k=3)  
         if len(similar_images) < 16 and text_descriptions:
             text_based_matches = []
             for desc in text_descriptions[:2]:  # Use top 2 labels as a balance
-                text_based_matches.extend(match_query(desc, None))
+                text_based_matches.extend(match_query(self.image_features_dict,desc, None))
             existing_images = {img for img, _ in similar_images} | {img_name}
             additional_matches = [
                 (img, score) for img, score in text_based_matches 
@@ -464,7 +469,7 @@ class ImageGridWindow(QMainWindow):
         progress.close()
         
         if similar_images:
-            self.similar_window = ImageGridWindow(f"Similar to {img_name} and {text_descriptions}", self.image_folder, similar_images, main_window=self.main_window)
+            self.similar_window = ImageGridWindow(f"Similar to {img_name} and {text_descriptions}", self.image_folder, self.image_features_dict, similar_images, main_window=self.main_window)
             self.similar_window.show()
         else:
             QMessageBox.warning(self, "Error", "No similar images found")
@@ -518,6 +523,8 @@ class ImageGridWindow(QMainWindow):
             moodboard_window.view.resetTransform()
         
         self.main_window.moodboard_window.show()
+        self.main_window.moodboard_window.raise_()
+        self.main_window.moodboard_window.activateWindow()
 
 class ResizablePixmapItem(QGraphicsPixmapItem):
     def __init__(self, pixmap, name = None):
@@ -791,7 +798,7 @@ class MoodboardCanvasWindow(QMainWindow):
 
 # Main function
 def main():
-    global text_features_dict, image_features_dict
+    global text_features_dict
 
     model, preprocess = clip.load("ViT-B/32", device="cpu")
     device = "cpu"
@@ -801,6 +808,8 @@ def main():
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
+    window.raise_()
+    window.activateWindow()
     sys.exit(app.exec_())
 
 # Entry point
