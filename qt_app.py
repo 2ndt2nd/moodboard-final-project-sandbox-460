@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushB
 
 
 # Global variables
-image_folder = "images_dataset"  # Change to your actual image folder
+image_folder = ""  # Change to your actual image folder
 text_features_dict = {}
 image_features_dict = {}
 sh = 0
@@ -206,7 +206,6 @@ class MainWindow(QMainWindow):
         self.layout.addWidget(reference_label)
 
         self.moodboard_window = None
-        self.selected_folder = ""
 
     def select_folder(self):
         """Open a folder selection dialog and store the selected path"""
@@ -219,14 +218,23 @@ class MainWindow(QMainWindow):
             QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
         )
         
-        if folder:  # If user didn't cancel
-            self.selected_folder = folder
-            self.folder_label.setText(f"Target folder: {folder}")
-            self.folder_label.setToolTip(folder)  # Show full path on hover
-            
-            # Update the global image_folder if you want to use the selected folder
-            global image_folder
-            image_folder = folder
+        if folder:
+            embeddings_path = os.path.join(folder, "img.pt")
+            if not os.path.exists(embeddings_path):
+                self.folder_label.setText(f"Target folder {folder} has no image embeddings!")
+                QMessageBox.warning(self, "Error", "The selected folder doesn't contain img.pt")
+                return
+                
+            try:
+                global image_features_dict, image_folder
+                image_features_dict = torch.load(embeddings_path, map_location=torch.device('cpu'), weights_only=True)
+                self.folder_label.setText(f"Target folder: {folder}")
+                self.folder_label.setToolTip(folder)
+                image_folder = folder
+
+            except Exception as e:
+                self.folder_label.setText(f"Error loading embeddings from {folder}")
+                QMessageBox.critical(self, "Error", f"Failed to load embeddings:\n{str(e)}")
 
     def closeEvent(self, event):
         QApplication.quit()
@@ -237,6 +245,10 @@ class MainWindow(QMainWindow):
         input_text = self.input_box.text()
         if not input_text:
             QMessageBox.warning(self, "Error", "Please enter a prompt.")
+            return
+        
+        if image_folder == "":
+            QMessageBox.warning(self, "Error", "Please select a folder")
             return
 
         # Show progress bar
@@ -769,7 +781,7 @@ def main():
     model, preprocess = clip.load("ViT-B/32", device="cpu")
     device = "cpu"
 
-    image_features_dict = torch.load("new_embeddings.pt", map_location=torch.device('cpu'), weights_only=True)
+    # image_features_dict = torch.load("new_embeddings.pt", map_location=torch.device('cpu'), weights_only=True)
     text_features_dict = torch.load("text_embeddings.pt", map_location=torch.device('cpu'), weights_only=True)
 
     app = QApplication(sys.argv)
