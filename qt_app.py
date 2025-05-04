@@ -256,8 +256,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         QApplication.quit()
          
-## Subject for moving
-
     def start_button_clicked(self):
         input_text = self.input_box.text()
         if not input_text:
@@ -285,18 +283,19 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(True)
         
         # Pass results to the image grid window
-        self.image_grid_window = ImageGridWindow(self.input_box.text(), results, main_window=self)
+        self.image_grid_window = ImageGridWindow(self.input_box.text(), image_folder, results, main_window=self)
         self.image_grid_window.show()
 
 ## Subject for moving
 
 class ImageGridWindow(QMainWindow):
-    def __init__(self, input_text, match_results=None, main_window=None):
+    def __init__(self, input_text, class_folder, match_results=None, main_window=None):
         super().__init__()
         self.main_window = main_window
         self.setWindowTitle("Select Images")
         self.setGeometry(0, 0, sw-200, sh-200)
         self.showMaximized()
+        self.image_folder = class_folder
 
         self.input_text = input_text
         self.selected_images = {}
@@ -383,7 +382,7 @@ class ImageGridWindow(QMainWindow):
         self.resize(window_width, window_height)
 
         for idx, img_file in enumerate(image_files):
-            image_path = os.path.join(image_folder, img_file)
+            image_path = os.path.join(self.image_folder, img_file)
             image = QImage(image_path)
             pixmap = QPixmap.fromImage(image).scaled(image_size, image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
@@ -405,7 +404,7 @@ class ImageGridWindow(QMainWindow):
         image_size = 250
 
         for idx, img_file in enumerate(image_files):
-            image_path = os.path.join(image_folder, img_file)
+            image_path = os.path.join(self.image_folder, img_file)
             image = QImage(image_path)
             pixmap = QPixmap.fromImage(image).scaled(image_size, image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
@@ -431,7 +430,7 @@ class ImageGridWindow(QMainWindow):
             os.makedirs('copied_images')
 
         for img_name in self.selected_images:
-            image_path = os.path.join(image_folder, img_name)
+            image_path = os.path.join(self.image_folder, img_name)
             if os.path.exists(image_path):
                 dest_path = os.path.join('copied_images', img_name)
                 shutil.copy(image_path, dest_path)
@@ -465,7 +464,7 @@ class ImageGridWindow(QMainWindow):
         progress.close()
         
         if similar_images:
-            self.similar_window = ImageGridWindow(f"Similar to {img_name} and {text_descriptions}", similar_images, main_window=self.main_window)
+            self.similar_window = ImageGridWindow(f"Similar to {img_name} and {text_descriptions}", self.image_folder, similar_images, main_window=self.main_window)
             self.similar_window.show()
         else:
             QMessageBox.warning(self, "Error", "No similar images found")
@@ -485,7 +484,7 @@ class ImageGridWindow(QMainWindow):
         if not self.selected_images:
             QMessageBox.warning(self, "Error", "No images selected.")
             return
-        selected_image_paths = [os.path.join(image_folder, img_name) for img_name in self.selected_images]
+        selected_image_paths = [os.path.join(self.image_folder, img_name) for img_name in self.selected_images]
 
         # if not hasattr(self, 'main_window') or self.main_window is None:
         if self.main_window is None:
