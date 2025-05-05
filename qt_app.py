@@ -7,24 +7,22 @@ import threading
 import torch
 import clip
 from tqdm import tqdm
-from PyQt5.QtCore import Qt, QObject, QUrl, QThread, QRectF, QPointF, pyqtSignal
+from PyQt5.QtCore import Qt, QObject, QUrl, QThread, QRectF, QPointF, pyqtSignal, QTimer
 from PyQt5.QtGui import QPixmap, QImage, QCursor, QKeySequence, QPainter
 from PyQt5.QtSvg import QSvgGenerator
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem, QShortcut, QProgressBar, QProgressDialog, QMenu
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem, QShortcut, QProgressBar, QProgressDialog, QMenu, QTabWidget
 
 
 # Global variables
-image_folder = "images_dataset"  # Change to your actual image folder
-text_features_dict = {}
-image_features_dict = {}
+image_folder = ""  # Change to your actual image folder
 sh = 0
 sw = 0
 model, preprocess = clip.load("ViT-B/32", device="cpu")
 device = "cpu"
 
 # Global dictionary to store sorted results for each prompt
-prompt_results_cache = {}
+# prompt_results_cache = {}
 
 def create_click_handler(parent, img_name, label):
     def handler(event):
@@ -43,14 +41,14 @@ def extract_text_features(text):
     return text_features
 
 # Function to match a query
-def match_query(input_query, progress_signal=None):
-    global prompt_results_cache
+def match_query(image_features_dict, text_features_dict, input_query, progress_signal=None):
+    # global prompt_results_cache
 
-    # Check if results are already cached
-    if input_query in prompt_results_cache:
-        if progress_signal:
-            progress_signal.finished.emit(prompt_results_cache[input_query])
-        return prompt_results_cache[input_query]
+    # # Check if results are already cached
+    # if input_query in prompt_results_cache:
+    #     if progress_signal:
+    #         progress_signal.finished.emit(prompt_results_cache[input_query])
+    #     return prompt_results_cache[input_query]
 
     # Get the text features for the query
     if input_query in text_features_dict:
@@ -58,7 +56,7 @@ def match_query(input_query, progress_signal=None):
     else:
         text_features = extract_text_features(input_query)
 
-    def compute_similarities():
+    def compute_similarities(image_features_dict):
         similarities = {}
         total_images = len(image_features_dict)  # Define total_images here
         
@@ -70,22 +68,23 @@ def match_query(input_query, progress_signal=None):
 
         # Sorting images and returning on finish
         sorted_images = sorted(similarities.items(), key=lambda x: x[1], reverse=True)
-        prompt_results_cache[input_query] = sorted_images
+        # prompt_results_cache[input_query] = sorted_images
         if progress_signal:
             progress_signal.finished.emit(sorted_images)
         
         return sorted_images
 
-    thread = threading.Thread(target=compute_similarities)
+    thread = threading.Thread(
+        target=compute_similarities,
+        args=(image_features_dict,)
+    )
     thread.start()
 
     if not progress_signal:  # Only wait if no signal is provided
         thread.join()
-        return prompt_results_cache[input_query]
+        return #prompt_results_cache[input_query]
 
-def get_closest_texts(image_name, top_k=5):
-    global text_features_dict, image_features_dict
-    
+def get_closest_texts(image_features_dict, text_features_dict, image_name, top_k=3):
     img_features = image_features_dict[image_name]
     similarities = {}
 
@@ -99,9 +98,7 @@ def get_closest_texts(image_name, top_k=5):
     sorted_texts = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:top_k]
     return [text for text, score in sorted_texts]
 
-def find_similar_images(target_img_name, top_k=16):  # Increased default to 16
-    global image_features_dict
-    
+def find_similar_images(image_features_dict, target_img_name, top_k=16):  # Increased default to 16
     target_features = image_features_dict[target_img_name]
     similarities = {}
     
@@ -120,28 +117,46 @@ class ProgressSignal(QObject):
     progress_updated = pyqtSignal(int, int)  # (current, total)
     finished = pyqtSignal(list)
 
-# Main window class
+
 class MainWindow(QMainWindow):
     def __init__(self):
         global sg, sw, sh
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
 
-        screen = QApplication.primaryScreen()  # Modern approach
+        screen = QApplication.primaryScreen()
         sg = screen.geometry()
         sw, sh = sg.width(), sg.height()
-        sw = sg.width()
-        sh = sg.height()
         self.setWindowTitle("MoodForager")
-        self.setGeometry(sw//2, sh//2, 400, 200)
+        self.setGeometry(sw//4, sh//4, 1200, 800)
+        self.image_features_dict = {}
 
+        # Create main widget and layout
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
         self.layout = QVBoxLayout(self.main_widget)
 
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setTabsClosable(True)
+        self.tab_widget.tabCloseRequested.connect(self.close_tab)
+        self.layout.addWidget(self.tab_widget)
+
+        # Add home tab
+        self.add_home_tab()
+
+        # Initialize moodboard window (will be shown in its own window)
+        self.moodboard_window = None
+
+    def add_home_tab(self):
+        """Create and add the home tab with search functionality"""
+        home_tab = QWidget()
+        home_layout = QVBoxLayout(home_tab)
+        
+        # Add all the home page widgets
         self.title_label = QLabel("MoodForager: Empowering Moodboards for Creatives")
         self.title_label.setStyleSheet("font-size: 30px; font-weight: bold; font-family: Arial;")
-        self.layout.addWidget(self.title_label)
+        home_layout.addWidget(self.title_label)
 
         intro_label = QLabel(
             "MoodForager allows you to quickly create moodboards and accelerate your creative ideation!\n"
@@ -151,29 +166,39 @@ class MainWindow(QMainWindow):
             "- Arrange your own moodboards and start working in no time!"
         )
         intro_label.setStyleSheet("font-size: 15px; padding: 3px; color: black;")
-        self.layout.addWidget(intro_label)
+        home_layout.addWidget(intro_label)
+
+        folder_layout = QHBoxLayout()
+        self.folder_label = QLabel("Target folder: Not selected")
+        self.folder_label.setStyleSheet("font-size: 12px;")
+        folder_layout.addWidget(self.folder_label)
+        
+        self.folder_button = QPushButton("Browse...")
+        self.folder_button.setStyleSheet("font-size: 12px; min-height: 25px; padding: 2px;")
+        self.folder_button.clicked.connect(self.select_folder)
+        folder_layout.addWidget(self.folder_button)
+        home_layout.addLayout(folder_layout)
 
         self.input_label = QLabel("Enter your prompt:")
-        self.layout.addWidget(self.input_label)
+        home_layout.addWidget(self.input_label)
 
         self.input_box = QLineEdit()
         self.input_box.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
-        self.layout.addWidget(self.input_box)
+        home_layout.addWidget(self.input_box)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setVisible(False)
-        self.layout.addWidget(self.progress_bar)
+        home_layout.addWidget(self.progress_bar)
 
         self.progress_signal = ProgressSignal()
         self.progress_signal.progress_updated.connect(self.update_progress)
         self.progress_signal.finished.connect(self.on_similarity_complete)
 
-        # Add a start button
         self.start_button = QPushButton("Start")
         self.start_button.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
         self.start_button.clicked.connect(self.start_button_clicked)
-        self.layout.addWidget(self.start_button)
+        home_layout.addWidget(self.start_button)
 
         self.start_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
         self.start_shortcut.activated.connect(self.start_button_clicked)
@@ -191,28 +216,75 @@ class MainWindow(QMainWindow):
             "}"
         )
         reference_label.setStyleSheet("font-size: 9px; padding: 4px; color: gray;")
-        self.layout.addWidget(reference_label)
+        home_layout.addWidget(reference_label)
 
-        self.moodboard_window = None
+        # Add stretch to push everything up
+        home_layout.addStretch()
 
-    def closeEvent(self, event):
-        QApplication.quit()
-         
-## Subject for moving
+        # Add home tab to the tab widget
+        self.tab_widget.addTab(home_tab, "Home")
+        self.tab_widget.setCurrentIndex(0)
+
+    def close_tab(self, index):
+        """Close a tab at the given index"""
+        if index != 0:  # Don't close the home tab
+            self.tab_widget.removeTab(index)
+
+    def select_folder(self):
+        """Open a folder selection dialog and store the selected path"""
+        from PyQt5.QtWidgets import QFileDialog
+        
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Select Target Folder",
+            "",  # Start in current directory
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+        )
+        
+        if folder:
+            embeddings_path = os.path.join(folder, "img.pt")
+            if not os.path.exists(embeddings_path):
+                self.folder_label.setText(f"Target folder {folder} has no image embeddings!")
+                QMessageBox.warning(self, "Error", "The selected folder doesn't contain img.pt")
+                return
+                
+            try:
+                progress = QProgressDialog("Loading image embeddings...", None, 0, 0, self)
+                progress.setWindowModality(Qt.WindowModal)
+                progress.setCancelButton(None)
+                progress.show()
+                QApplication.processEvents()
+                
+                def load_embeddings():
+                    global image_folder
+                    self.image_features_dict = torch.load(embeddings_path, map_location=torch.device('cpu'), weights_only=True)
+                    self.text_features_dict = torch.load(os.path.join(folder, "text.pt"), map_location=torch.device('cpu'), weights_only=True)
+
+                    image_folder = folder
+                    self.folder_label.setText(f"Target folder: {folder}")
+                    self.folder_label.setToolTip(folder)
+                    progress.close()
+                
+                QTimer.singleShot(100, load_embeddings)
+
+            except Exception as e:
+                self.folder_label.setText(f"Error loading embeddings from {folder}")
+                QMessageBox.critical(self, "Error", f"Failed to load embeddings:\n{str(e)}")
 
     def start_button_clicked(self):
         input_text = self.input_box.text()
         if not input_text:
             QMessageBox.warning(self, "Error", "Please enter a prompt.")
             return
+        
+        if image_folder == "":
+            QMessageBox.warning(self, "Error", "Please select a folder")
+            return
 
-        # Show progress bar
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         self.start_button.setEnabled(False)
-        
-        # Start matching with progress updates
-        match_query(input_text, self.progress_signal)
+        match_query(self.image_features_dict, self.text_features_dict, input_text, self.progress_signal)
    
     def update_progress(self, current, total):
         percent = int((current / total) * 100)
@@ -222,242 +294,366 @@ class MainWindow(QMainWindow):
         self.progress_bar.setVisible(False)
         self.start_button.setEnabled(True)
         
-        # Pass results to the image grid window
-        self.image_grid_window = ImageGridWindow(self.input_box.text(), results, main_window=self)
-        self.image_grid_window.show()
+        # Create a new tab for the results
+        self.add_results_tab(self.input_box.text(), results)
 
-## Subject for moving
+    def add_results_tab(self, title, results):
+        """Add a new tab with image grid results"""
+        # Check if we already have a tab with this title
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.tabText(i) == title:
+                # Switch to existing tab
+                self.tab_widget.setCurrentIndex(i)
+                return
+        
+        # Create new tab
+        image_grid = ImageGridWindow(title, image_folder, self.image_features_dict, self.text_features_dict, results, main_window=self)
+        scroll = QScrollArea()
+        scroll.setWidget(image_grid)
+        scroll.setWidgetResizable(True)
+        
+        # Add the tab
+        self.tab_widget.addTab(scroll, title)
+        self.tab_widget.setCurrentIndex(self.tab_widget.count() - 1)
 
-class ImageGridWindow(QMainWindow):
-    def __init__(self, input_text, match_results=None, main_window=None):
+    def open_moodboard(self, image_paths):
+        """Open the moodboard window with selected images"""
+        if not image_paths:
+            QMessageBox.warning(self, "Error", "No images selected.")
+            return
+            
+        if not hasattr(self, 'moodboard_window') or self.moodboard_window is None:
+            self.moodboard_window = MoodboardCanvasWindow(image_paths)
+        else:
+            self.moodboard_window.add_images_to_scene(image_paths)
+        
+        self.moodboard_window.show()
+        self.moodboard_window.raise_()
+        self.moodboard_window.activateWindow()
+
+class ImageGridWindow(QWidget):
+    def __init__(self, input_text, class_folder, image_features_dict, text_features_dict, match_results=None, main_window=None):
         super().__init__()
         self.main_window = main_window
-        self.setWindowTitle("Select Images")
-        self.setGeometry(0, 0, sw-200, sh-200)
-        self.showMaximized()
+        self.image_folder = class_folder
+        self.image_features_dict = image_features_dict
+        self.text_features_dict = text_features_dict
 
         self.input_text = input_text
-        self.selected_images = {}
-        self.match_results = match_results  # Store but don't create grid yet
+        self.selected_images = set()  # Using set instead of dict for selected images
+        self.match_results = match_results or []
 
-        # Create UI elements but don't populate grid
-        self.main_widget = QWidget()
-        self.setCentralWidget(self.main_widget)
-        self.layout = QVBoxLayout(self.main_widget)
-
-        # Add a label for the grid
-        self.grid_label = QLabel("Prompt: "+input_text)
-        self.grid_label.setStyleSheet("font-size: 20px; font-weight: bold;")
-        self.layout.addWidget(self.grid_label)
-
-        hint_label = QLabel(
-            "Try right clicking for option to search for similar images!"
-        )
-        hint_label.setStyleSheet("font-size: 15px; padding: 2px; color: black;")
-        self.layout.addWidget(hint_label)
-
-        # Create a scroll area for the image grid
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.layout.addWidget(self.scroll_area)
-
-        # Create a widget for the scroll area
-        self.scroll_widget = QWidget()
-        self.scroll_area.setWidget(self.scroll_widget)
-        self.grid_layout = QGridLayout(self.scroll_widget)
-
-        # Add Horizontal button row
-        button_row = QHBoxLayout()
-
-        # Create Shuffle button
-        self.shuffle_button = QPushButton("Shuffle")
-        self.shuffle_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.shuffle_button.clicked.connect(self.shuffle_images)
-        button_row.addWidget(self.shuffle_button)
-
-        # Create Copy button
-        self.copy_button = QPushButton("Copy to Folder")
-        self.copy_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.copy_button.clicked.connect(self.copy_selected_images)
-        button_row.addWidget(self.copy_button)
-
-        # Create Moodboard button
-        self.open_moodboard_button = QPushButton("Copy to Moodboard")
-        self.open_moodboard_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.open_moodboard_button.clicked.connect(self.open_moodboard)
-        button_row.addWidget(self.open_moodboard_button)
-
-        self.layout.addLayout(button_row)
-
-        # Add images to the grid
-        if match_results:  # Use provided results if available
-            self.match_results = match_results
+        self.setup_ui()
+        if self.match_results:
             self.create_image_grid()
 
-        self.reference_image = input_text if isinstance(input_text, str) else None
+    def setup_ui(self):
+        """Initialize all UI components"""
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Header section
+        header_layout = QHBoxLayout()
+        self.grid_label = QLabel(f"Results for: {self.input_text}")
+        self.grid_label.setStyleSheet("font-size: 18px; font-weight: bold;")
+        header_layout.addWidget(self.grid_label)
+        
+        self.selected_count_label = QLabel("0 selected")
+        self.selected_count_label.setStyleSheet("font-size: 14px; color: #555;")
+        header_layout.addWidget(self.selected_count_label)
+        header_layout.addStretch()
+        
+        self.layout.addLayout(header_layout)
+
+        # Image grid area
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_widget = QWidget()
+        self.grid_layout = QGridLayout(self.scroll_widget)
+        self.grid_layout.setSpacing(15)
+        self.scroll_area.setWidget(self.scroll_widget)
+        self.layout.addWidget(self.scroll_area)
+
+        # Button toolbar
+        self.setup_toolbar()
+
+    def setup_toolbar(self):
+        """Create the bottom toolbar with action buttons"""
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(10)
+
+        # Action buttons
+        self.shuffle_button = self.create_tool_button("Shuffle", self.shuffle_images)
+        self.copy_button = self.create_tool_button("Copy Selected", self.copy_selected_images)
+        self.moodboard_button = self.create_tool_button("Add to Moodboard", self.open_moodboard)
+        self.select_all_button = self.create_tool_button("Select All", self.select_all_images)
+        self.clear_selection_button = self.create_tool_button("Clear Selection", self.clear_selection)
+
+        # Add buttons to toolbar
+        for btn in [self.shuffle_button, self.copy_button, self.moodboard_button, 
+                   self.select_all_button, self.clear_selection_button]:
+            toolbar.addWidget(btn)
+
+        toolbar.addStretch()
+        self.layout.addLayout(toolbar)
+
+    def create_tool_button(self, text, handler):
+        """Helper to create consistent toolbar buttons"""
+        btn = QPushButton(text)
+        btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px; 
+                min-height: 30px; 
+                padding: 5px 10px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background: #f0f0f0;
+            }
+        """)
+        btn.clicked.connect(handler)
+        return btn
 
     def create_image_grid(self):
-        if not self.match_results:
-            QMessageBox.warning(self, "Error", "No images found matching the criteria")
-            return
-    
+        """Populate the grid with images from match results"""
+        self.clear_grid()
+        
         available_images = len(self.match_results)
         top_k = min(16, available_images)
-        top_n = min(50, available_images)
+        top_n = min(40, available_images)
         
+        image_files = self.get_image_subset(self.match_results, available_images, top_k, top_n)
+        self.display_images(image_files)
 
-        def get_image_subset(results, available, top_k, top_n):
-            if available <= top_k:
-                return [img for img, _ in results]
-            return [img for img, _ in random.sample(results[:top_n], top_k)]
+    def get_image_subset(self, results, available, top_k, top_n):
+        """Get a subset of images to display"""
+        if available <= top_k:
+            return [img for img, _ in results]
+        return [img for img, _ in random.sample(results[:top_n], top_k)]
 
-        image_files = get_image_subset(self.match_results, available_images, top_k, top_n)
-
-        num_columns = 4  
-        image_size = 250  
-        padding = 10 
-        window_width = num_columns * (image_size + padding)
-        window_height = sg.height()-100
-        self.resize(window_width, window_height)
-
+    def display_images(self, image_files):
+        """Display images in the grid layout"""
+        num_columns = 4
+        image_size = 300
+        
         for idx, img_file in enumerate(image_files):
-            image_path = os.path.join(image_folder, img_file)
-            image = QImage(image_path)
-            pixmap = QPixmap.fromImage(image).scaled(image_size, image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            image_path = os.path.join(self.image_folder, img_file)
+            try:
+                pixmap = QPixmap(image_path)
+                if pixmap.isNull():
+                    continue
+                    
+                pixmap = pixmap.scaled(image_size, image_size, 
+                                     Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                
+                label = ClickableImageLabel(pixmap, img_file)
+                label.clicked.connect(self.on_image_clicked)
+                label.right_clicked.connect(self.show_context_menu)
+                
+                row = idx // num_columns
+                column = idx % num_columns
+                self.grid_layout.addWidget(label, row, column, alignment=Qt.AlignCenter)
+                
+            except Exception as e:
+                print(f"Error loading image {img_file}: {str(e)}")
 
-            label = QLabel()
-            label.setPixmap(pixmap)
-            label.setStyleSheet("border: 0px solid transparent;")
-            label.mousePressEvent = create_click_handler(self, img_file, label)
+    def on_image_clicked(self, img_name, label):
+        """Handle image selection"""
+        if img_name in self.selected_images:
+            self.selected_images.remove(img_name)
+            label.set_selected(False)
+        else:
+            self.selected_images.add(img_name)
+            label.set_selected(True)
         
-            row = idx // num_columns
-            column = idx % num_columns
-            self.grid_layout.addWidget(label, row, column, alignment=Qt.AlignCenter)
+        self.update_selection_count()
+
+    def update_selection_count(self):
+        """Update the selected images counter"""
+        count = len(self.selected_images)
+        self.selected_count_label.setText(f"{count} selected")
+        self.copy_button.setEnabled(count > 0)
+        self.moodboard_button.setEnabled(count > 0)
+
+    def select_all_images(self):
+        """Select all images in the grid"""
+        for i in range(self.grid_layout.count()):
+            item = self.grid_layout.itemAt(i)
+            if isinstance(item.widget(), ClickableImageLabel):
+                label = item.widget()
+                self.selected_images.add(label.image_name)
+                label.set_selected(True)
+        self.update_selection_count()
+
+    def clear_selection(self):
+        """Clear all image selections"""
+        for i in range(self.grid_layout.count()):
+            item = self.grid_layout.itemAt(i)
+            if isinstance(item.widget(), ClickableImageLabel):
+                item.widget().set_selected(False)
+        self.selected_images.clear()
+        self.update_selection_count()
+
+    def clear_grid(self):
+        """Clear all images from the grid"""
+        while self.grid_layout.count():
+            item = self.grid_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
     def shuffle_images(self):
+        """Shuffle the displayed images"""
         available_images = len(self.match_results)
         top_k = min(16, available_images)
-        top_n = min(50, available_images)
+        top_n = min(80, available_images)
+        
         random_subset = random.sample(self.match_results[:top_n], top_k)
-        image_files = [img for img, score in random_subset]
-        image_size = 250
+        image_files = [img for img, _ in random_subset]
+        
+        self.clear_selection()
+        self.clear_grid()
+        self.display_images(image_files)
 
-        for idx, img_file in enumerate(image_files):
-            image_path = os.path.join(image_folder, img_file)
-            image = QImage(image_path)
-            pixmap = QPixmap.fromImage(image).scaled(image_size, image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-
-            label = self.grid_layout.itemAt(idx).widget()
-            label.setPixmap(pixmap)
-            label.setStyleSheet("border: 0px solid transparent;")
-            label.mousePressEvent = create_click_handler(self, img_file, label)
-            
-    def on_image_click(self, img_name, label):
-        if img_name in self.selected_images:
-            del self.selected_images[img_name]
-            label.setStyleSheet("border: 0px solid transparent;")
-        else:
-            self.selected_images[img_name] = True
-            label.setStyleSheet("border: 5px solid blue;")
+    def open_image(self, img_name):
+        """Open the containing folder and select the image"""
+        image_path = os.path.join(self.image_folder, img_name)
+        
+        if not os.path.exists(image_path):
+            QMessageBox.warning(self, "Error", f"Image not found:\n{image_path}")
+            return
+        
+        try:
+            if sys.platform == 'win32':
+                # Windows - use explorer with /select parameter
+                os.startfile(os.path.normpath(image_path))
+            elif sys.platform == 'darwin':
+                # macOS - use open with -R to reveal
+                subprocess.run(['open', '-R', image_path])
+            else:
+                # Linux - try using xdg-open's parent directory
+                subprocess.run(['xdg-open', os.path.dirname(image_path)])
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Could not open folder:\n{str(e)}")
 
     def copy_selected_images(self):
         if not self.selected_images:
-            QMessageBox.warning(self, "Error", "No images selected.")
+            QMessageBox.warning(self, "No Selection", "Please select images to copy.")
             return
 
-        if not os.path.exists('copied_images'):
-            os.makedirs('copied_images')
-
+        os.makedirs('copied_images', exist_ok=True)
+        copied = 0
+        
         for img_name in self.selected_images:
-            image_path = os.path.join(image_folder, img_name)
-            if os.path.exists(image_path):
-                dest_path = os.path.join('copied_images', img_name)
-                shutil.copy(image_path, dest_path)
-                print(f"Copied {img_name} to 'copied_images'.")
-                absolute_path = os.path.abspath("copied_images")
-                webbrowser.open(absolute_path)
-            else:
-                print(f"Image {img_name} not found.")
+            try:
+                src_path = os.path.join(self.image_folder, img_name)
+                if os.path.exists(src_path):
+                    dest_path = os.path.join('copied_images', img_name)
+                    shutil.copy(src_path, dest_path)
+                    copied += 1
+            except Exception as e:
+                print(f"Error copying {img_name}: {str(e)}")
+        
+        if copied > 0:
+            try:
+                if sys.platform == 'win32':
+                    os.startfile(os.path.normpath('copied_images'))
+                elif sys.platform == 'darwin':
+                    subprocess.run(['open', 'copied_images'])
+                else:
+                    subprocess.run(['xdg-open', 'copied_images'])
+            except Exception as e:
+                print(f"Error opening folder: {str(e)}")
+        else:
+            QMessageBox.warning(self, "Error", "No images were copied.")
 
-    def show_similar(self, img_name):
+    def show_context_menu(self, pos, img_name):
+        menu = QMenu(self)
+        
+        find_similar = menu.addAction("Find Similar Images")
+        open_action = menu.addAction("Open Image in Photo Viewer")
+        menu.addSeparator()
+        select_all = menu.addAction("Select All")
+        clear_selection = menu.addAction("Clear Selection")
+        
+        action = menu.exec_(QCursor.pos())
+        
+        if action == find_similar:
+            self.show_similar_images(img_name)
+        elif action == open_action:
+            self.open_image(img_name)
+        elif action == select_all:
+            self.select_all_images()
+        elif action == clear_selection:
+            self.clear_selection()
+
+    def show_similar_images(self, img_name):
+        """Find and display similar images"""
         progress = QProgressDialog("Finding similar images...", None, 0, 0, self)
         progress.setWindowModality(Qt.WindowModal)
         progress.show()
-        
         QApplication.processEvents()
         
-        similar_images = find_similar_images(img_name, top_k=16)  
-        text_descriptions = get_closest_texts(img_name, top_k=3)  
-        if len(similar_images) < 16 and text_descriptions:
-            text_based_matches = match_query(text_descriptions[0], None)
-            existing_images = {img for img, _ in similar_images} | {img_name}
-            additional_matches = [
-                (img, score) for img, score in text_based_matches 
-                if img not in existing_images
-            ][:16 - len(similar_images)]
+        try:
+            similar_images = find_similar_images(self.image_features_dict, img_name, top_k=16)
+            text_descriptions = get_closest_texts(self.image_features_dict, self.text_features_dict, img_name, top_k=3)
             
-            similar_images.extend(additional_matches)
-        
-        progress.close()
-        
-        if similar_images:
-            for img, score in similar_images:
-                print(f"{img}: {score:.3f}")
+            if len(similar_images) < 16 and text_descriptions:
+                text_based_matches = []
+                for desc in text_descriptions[:2]:
+                    text_based_matches.extend(match_query(self.image_features_dict, self.text_features_dict, desc, None))
                 
-            self.similar_window = ImageGridWindow(f"Similar to {img_name}", similar_images, main_window=self.main_window)
-            self.similar_window.show()
-        else:
-            QMessageBox.warning(self, "Error", "No similar images found")
-        
-    # Context menu to add finding similar image option    
-    def show_context_menu(self, pos, img_name, label):
-        menu = QMenu(self)
-        find_similar = menu.addAction("Find Similar Images")
-        
-        # # Connect actions to functions
-        find_similar.triggered.connect(lambda: self.show_similar(img_name))
-        
-        # Show the menu at cursor position
-        menu.exec_(QCursor.pos())
+                existing_images = {img for img, _ in similar_images} | {img_name}
+                additional_matches = [
+                    (img, score) for img, score in text_based_matches 
+                    if img not in existing_images
+                ][:16 - len(similar_images)]
+                similar_images.extend(additional_matches)
+            
+            if similar_images:
+                title = f"Similar to {os.path.splitext(img_name)[0]}"
+                self.main_window.add_results_tab(title, similar_images)
+            else:
+                QMessageBox.warning(self, "No Results", "No similar images found.")
+                
+        finally:
+            progress.close()
 
     def open_moodboard(self):
+        """Open selected images in moodboard"""
         if not self.selected_images:
-            QMessageBox.warning(self, "Error", "No images selected.")
+            QMessageBox.warning(self, "No Selection", "Please select images to add to moodboard.")
             return
-        selected_image_paths = [os.path.join(image_folder, img_name) for img_name in self.selected_images]
-
-        # if not hasattr(self, 'main_window') or self.main_window is None:
-        if self.main_window is None:
-            parent = self.parent()
-            while parent and not isinstance(parent, MainWindow):
-                parent = parent.parent()
-            if parent:
-                self.main_window = parent
-            else:
-                self.moodboard_window = MoodboardCanvasWindow(selected_image_paths)
-                self.moodboard_window.show()
-                return
-        moodboard_window = self.main_window.moodboard_window 
-        if not hasattr(self.main_window, 'moodboard_window') or self.main_window.moodboard_window is None:
-            self.main_window.moodboard_window = MoodboardCanvasWindow(selected_image_paths)
-        else:         
-            last_width_pos = 0
-            for idx, image_path in enumerate(selected_image_paths):
-                pixmap = QPixmap(image_path)
-                if not pixmap.isNull() and image_path not in moodboard_window.moodboard_items:
-                    last_width_pos += pixmap.width()
-                    resizable_item = ResizablePixmapItem(pixmap)
-                    resizable_item.setPos(last_width_pos + 50, 0)
-                    moodboard_window.scene.addItem(resizable_item)
-                    resizable_item.setFlag(QGraphicsItem.ItemIsSelectable, True)
-                    resizable_item.mousePressEvent = lambda event, item=resizable_item: moodboard_window.select_item(item)
-                    moodboard_window.moodboard_items.append(image_path)
-
             
-            # Reset view transform
-            moodboard_window.view.resetTransform()
+        image_paths = [os.path.join(self.image_folder, img_name) 
+                      for img_name in self.selected_images]
+        self.main_window.open_moodboard(image_paths)
+
+
+class ClickableImageLabel(QLabel):
+    """Custom QLabel that handles click events and selection state"""
+    clicked = pyqtSignal(str, object)  # (image_name, label)
+    right_clicked = pyqtSignal(QPointF, str)  # (position, image_name)
+    
+    def __init__(self, pixmap, image_name):
+        super().__init__()
+        self.image_name = image_name
+        self.setPixmap(pixmap)
+        self.setAlignment(Qt.AlignCenter)
+        self.setStyleSheet("border: 2px solid transparent;")
+        self.set_selected(False)
         
-        self.main_window.moodboard_window.show()
+    def set_selected(self, selected):
+        """Update visual selection state"""
+        self.selected = selected
+        border = "2px solid blue" if selected else "2px solid transparent"
+        self.setStyleSheet(f"border: {border};")
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.image_name, self)
+        elif event.button() == Qt.RightButton:
+            self.right_clicked.emit(event.pos(), self.image_name)
 
 class ResizablePixmapItem(QGraphicsPixmapItem):
     def __init__(self, pixmap, name = None):
@@ -511,8 +707,8 @@ class CustomGraphicsView(QGraphicsView):
             # Pan the view
             delta = self._pan_start_pos - event.pos()
             self._pan_start_pos = event.pos()
-            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + delta.x())
-            self.verticalScrollBar().setValue(self.verticalScrollBar().value() + delta.y())
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + int(delta.x()))
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() + int(delta.y()))
         else:
             super().mouseMoveEvent(event)
 
@@ -562,8 +758,6 @@ class MoodboardCanvasWindow(QMainWindow):
         self.highest_z_value = 0
 
 
-        
-
         # Addding images to scene
         if image_paths:
             last_width_pos = 0
@@ -585,29 +779,32 @@ class MoodboardCanvasWindow(QMainWindow):
         self.zoom_out_button = QPushButton("Zoom Out")
         self.zoom_out_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.zoom_out_button.clicked.connect(self.zoom_out)
+        button_row.addWidget(self.zoom_out_button)
         
-
         # Zoom In button
         self.zoom_in_button = QPushButton("Zoom In")
         self.zoom_in_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.zoom_in_button.clicked.connect(self.zoom_in)
+        button_row.addWidget(self.zoom_in_button)
         
-
         # Clear Board button
         self.clear_board_button = QPushButton("Clear Canvas")
         self.clear_board_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.clear_board_button.clicked.connect(self.clear_board)
+        button_row.addWidget(self.clear_board_button)
         
 
         # Reset Zoom button
         self.reset_zoom_button = QPushButton("Reset Zoom")
         self.reset_zoom_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.reset_zoom_button.clicked.connect(self.reset_zoom)
+        button_row.addWidget(self.reset_zoom_button)
 
         # Add Save button
         self.save_button = QPushButton("Save Moodboard as SVG")
         self.save_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
         self.save_button.clicked.connect(self.save_moodboard)
+        button_row.addWidget(self.save_button)
 
         shortcut_hints = QLabel(
             "Shortcuts:\n"
@@ -615,16 +812,11 @@ class MoodboardCanvasWindow(QMainWindow):
             "  Ctrl + Scroll Wheel : Adjust Zoom\n"
             "  - / = : Scale Image Down / Up\n"
             "  Select Image + Backspace : Remove Selected Image\n"
-            "  Spacebar  : Hold to Pan the Canvas"
+            "  Spacebar  : Hold to Pan the Canvas\n"
+            "  Ctrl + S : Save Moodboard to SVG"
         )
         shortcut_hints.setStyleSheet("font-size: 13px; padding: 3px; color: black;")
         self.layout.addWidget(shortcut_hints)
-        
-        button_row.addWidget(self.zoom_out_button)
-        button_row.addWidget(self.zoom_in_button)
-        button_row.addWidget(self.clear_board_button)
-        button_row.addWidget(self.reset_zoom_button)
-        button_row.addWidget(self.save_button)
         self.layout.addLayout(button_row)
 
         # Shortcuts for zooming
@@ -644,6 +836,9 @@ class MoodboardCanvasWindow(QMainWindow):
         # Shortcuts for removing the selected image
         self.remove_image_shortcut = QShortcut(QKeySequence(Qt.Key_Backspace), self)
         self.remove_image_shortcut.activated.connect(self.remove_image)
+
+        self.save_shortcut = QShortcut(QKeySequence("Ctrl+s"), self)
+        self.save_shortcut.activated.connect(self.save_moodboard)
 
     def select_item(self, item):
         """Set the selected item and bring it to the topmost layer."""
@@ -732,17 +927,15 @@ class MoodboardCanvasWindow(QMainWindow):
 
 # Main function
 def main():
-    global text_features_dict, image_features_dict
 
     model, preprocess = clip.load("ViT-B/32", device="cpu")
     device = "cpu"
 
-    image_features_dict = torch.load("new_embeddings.pt", map_location=torch.device('cpu'), weights_only=True)
-    text_features_dict = torch.load("text_embeddings.pt", map_location=torch.device('cpu'), weights_only=True)
-
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
+    window.raise_()
+    window.activateWindow()
     sys.exit(app.exec_())
 
 # Entry point

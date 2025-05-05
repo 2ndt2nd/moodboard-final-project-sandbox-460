@@ -9,6 +9,7 @@ venv
 *.jpg
 *.zip
 1k-unsplash
+*.jpg
 
 copied_images
 pixiv_illustration_dataset
