@@ -6,6 +6,7 @@ dis
 venv
 *_internal
 *.exe
+*.jpg
 *.zip
 1k-unsplash
 
