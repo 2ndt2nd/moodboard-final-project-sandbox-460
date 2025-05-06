@@ -112,7 +112,47 @@ def find_similar_images(image_features_dict, target_img_name, top_k=16):  # Incr
     
     return sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:top_k]
 
-def show_similar_images(self, img_name):
+def process_dropped_image(self, image_path):
+    """Process a dropped image to find similar images"""
+    if not self.image_features_dict:
+        QMessageBox.warning(self, "Error", "Please select a folder with image embeddings first.")
+        return
+
+    try:
+        progress = QProgressDialog("Processing image...", None, 0, 0, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setCancelButton(None)
+        progress.show()
+        QApplication.processEvents()
+
+        # Load and preprocess the image
+        image = Image.open(image_path)
+        image_input = preprocess(image).unsqueeze(0).to(device)
+
+        # Extract features
+        with torch.no_grad():
+            image_features = model.encode_image(image_input)
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+
+        # Find similar images
+        similarities = {}
+        total_images = len(self.image_features_dict)
+        for i, (img_name, features) in enumerate(self.image_features_dict.items(), 1):
+            similarities[img_name] = torch.cosine_similarity(
+                image_features, features.unsqueeze(0), dim=-1).item()
+            progress.setValue(int(i/total_images*100))
+            QApplication.processEvents()
+
+        # Sort and show results
+        sorted_images = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:16]
+        self.add_results_tab(f"Similar to {os.path.basename(image_path)}", sorted_images)
+
+    except Exception as e:
+        QMessageBox.critical(self, "Error", f"Failed to process image:\n{str(e)}")
+    finally:
+        progress.close()
+
+def show_similar_images(self, img_name_or_path):
     """Find and display similar images"""
     progress = QProgressDialog("Finding similar images...", None, 0, 0, self)
     progress.setWindowModality(Qt.WindowModal)
@@ -120,15 +160,26 @@ def show_similar_images(self, img_name):
     QApplication.processEvents()
     
     try:
-        similar_images = find_similar_images(self.image_features_dict, img_name, top_k=16)
-        text_descriptions = get_closest_texts(self.image_features_dict, self.text_features_dict, img_name, top_k=3)
+        # Check if this is a path to an external image
+        if os.path.exists(img_name_or_path):
+            # Process as external image
+            process_dropped_image(self, img_name_or_path)
+            return
+            
+        # Otherwise treat as image from our dataset
+        if img_name_or_path not in self.image_features_dict:
+            QMessageBox.warning(self, "Error", "Image not found in dataset")
+            return
+            
+        similar_images = find_similar_images(self.image_features_dict, img_name_or_path, top_k=16)
+        text_descriptions = get_closest_texts(self.image_features_dict, self.text_features_dict, img_name_or_path, top_k=3)
         
         if len(similar_images) < 16 and text_descriptions:
             text_based_matches = []
             for desc in text_descriptions[:2]:
                 text_based_matches.extend(match_query(self.image_features_dict, self.text_features_dict, desc, None))
             
-            existing_images = {img for img, _ in similar_images} | {img_name}
+            existing_images = {img for img, _ in similar_images} | {img_name_or_path}
             additional_matches = [
                 (img, score) for img, score in text_based_matches 
                 if img not in existing_images
@@ -136,14 +187,13 @@ def show_similar_images(self, img_name):
             similar_images.extend(additional_matches)
         
         if similar_images:
-            title = f"Similar to {os.path.splitext(img_name)[0]}"
+            title = f"Similar to {os.path.splitext(img_name_or_path)[0]}"
             self.main_window.add_results_tab(title, similar_images)
         else:
             QMessageBox.warning(self, "No Results", "No similar images found.")
             
     finally:
         progress.close()
-
 
 class ProgressSignal(QObject):
     progress_updated = pyqtSignal(int, int)  # (current, total)
@@ -292,48 +342,8 @@ class MainWindow(QMainWindow):
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
             if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
-                self.process_dropped_image(file_path)
+                process_dropped_image(self,file_path)
         event.acceptProposedAction()
-
-    def process_dropped_image(self, image_path):
-        """Process a dropped image to find similar images"""
-        if not self.image_features_dict:
-            QMessageBox.warning(self, "Error", "Please select a folder with image embeddings first.")
-            return
-
-        try:
-            progress = QProgressDialog("Processing image...", None, 0, 0, self)
-            progress.setWindowModality(Qt.WindowModal)
-            progress.setCancelButton(None)
-            progress.show()
-            QApplication.processEvents()
-
-            # Load and preprocess the image
-            image = Image.open(image_path)
-            image_input = preprocess(image).unsqueeze(0).to(device)
-
-            # Extract features
-            with torch.no_grad():
-                image_features = model.encode_image(image_input)
-            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-
-            # Find similar images
-            similarities = {}
-            total_images = len(self.image_features_dict)
-            for i, (img_name, features) in enumerate(self.image_features_dict.items(), 1):
-                similarities[img_name] = torch.cosine_similarity(
-                    image_features, features.unsqueeze(0), dim=-1).item()
-                progress.setValue(int(i/total_images*100))
-                QApplication.processEvents()
-
-            # Sort and show results
-            sorted_images = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:16]
-            self.add_results_tab(f"Similar to {os.path.basename(image_path)}", sorted_images)
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to process image:\n{str(e)}")
-        finally:
-            progress.close()
 
     def select_folder(self):
         """Open a folder selection dialog and store the selected path"""
@@ -611,7 +621,7 @@ class ImageGridWindow(QWidget):
             file_path = url.toLocalFile()
             if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
                 self.input_box.setText(self.temp_text)
-                show_similar_images(self, file_path)
+                show_similar_images(self.main_window, file_path)
         event.acceptProposedAction()
 
     def perform_search(self):
