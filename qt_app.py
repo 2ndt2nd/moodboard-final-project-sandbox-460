@@ -2,16 +2,15 @@ import sys
 import os
 import random
 import shutil
-import webbrowser
 import threading
 import torch
 import clip
+from PIL import Image
 from tqdm import tqdm
-from PyQt5.QtCore import Qt, QObject, QUrl, QThread, QRectF, QPointF, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, QObject, QUrl, QPointF, pyqtSignal, QTimer, QMimeData, QUrl
 from PyQt5.QtGui import QPixmap, QImage, QCursor, QKeySequence, QPainter
 from PyQt5.QtSvg import QSvgGenerator
-from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem, QShortcut, QProgressBar, QProgressDialog, QMenu, QTabWidget
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem, QShortcut, QProgressBar, QProgressDialog, QMenu, QTabWidget, QFileDialog
 
 
 # Global variables
@@ -158,6 +157,26 @@ class MainWindow(QMainWindow):
         self.title_label.setStyleSheet("font-size: 30px; font-weight: bold; font-family: Arial;")
         home_layout.addWidget(self.title_label)
 
+        # Add drag and drop area
+        self.drop_area = QLabel("Drag & Drop Images Here to Find Similar Images")
+        self.drop_area.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                border: 2px dashed #aaa;
+                padding: 20px;
+                min-height: 100px;
+                qproperty-alignment: AlignCenter;
+            }
+            QLabel:hover {
+                border: 2px dashed #666;
+                background-color: #f0f0f0;
+            }
+        """)
+        self.drop_area.setAcceptDrops(True)
+        self.drop_area.dragEnterEvent = self.dragEnterEvent
+        self.drop_area.dropEvent = self.dropEvent
+        home_layout.addWidget(self.drop_area)
+
         intro_label = QLabel(
             "MoodForager allows you to quickly create moodboards and accelerate your creative ideation!\n"
             "- Retrieve images from a local library by selecting text\n"
@@ -230,10 +249,61 @@ class MainWindow(QMainWindow):
         if index != 0:  # Don't close the home tab
             self.tab_widget.removeTab(index)
 
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            file_path = url.toLocalFile()
+            if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
+                self.process_dropped_image(file_path)
+        event.acceptProposedAction()
+
+    def process_dropped_image(self, image_path):
+        """Process a dropped image to find similar images"""
+        if not self.image_features_dict:
+            QMessageBox.warning(self, "Error", "Please select a folder with image embeddings first.")
+            return
+
+        try:
+            progress = QProgressDialog("Processing image...", None, 0, 0, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setCancelButton(None)
+            progress.show()
+            QApplication.processEvents()
+
+            # Load and preprocess the image
+            image = Image.open(image_path)
+            image_input = preprocess(image).unsqueeze(0).to(device)
+
+            # Extract features
+            with torch.no_grad():
+                image_features = model.encode_image(image_input)
+            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+
+            # Find similar images
+            similarities = {}
+            total_images = len(self.image_features_dict)
+            for i, (img_name, features) in enumerate(self.image_features_dict.items(), 1):
+                similarities[img_name] = torch.cosine_similarity(
+                    image_features, features.unsqueeze(0), dim=-1).item()
+                progress.setValue(int(i/total_images*100))
+                QApplication.processEvents()
+
+            # Sort and show results
+            sorted_images = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:16]
+            self.add_results_tab(f"Similar to {os.path.basename(image_path)}", sorted_images)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to process image:\n{str(e)}")
+        finally:
+            progress.close()
+
     def select_folder(self):
         """Open a folder selection dialog and store the selected path"""
-        from PyQt5.QtWidgets import QFileDialog
-        
         folder = QFileDialog.getExistingDirectory(
             self,
             "Select Target Folder",
@@ -277,9 +347,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Please enter a prompt.")
             return
         
-        if image_folder == "":
-            QMessageBox.warning(self, "Error", "Please select a folder")
-            return
+        # if image_folder == "":
+        #     QMessageBox.warning(self, "Error", "Please select a folder")
+        #     return
 
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
@@ -384,7 +454,7 @@ class ImageGridWindow(QWidget):
 
         # Action buttons
         self.shuffle_button = self.create_tool_button("Shuffle", self.shuffle_images)
-        self.copy_button = self.create_tool_button("Copy Selected", self.copy_selected_images)
+        self.copy_button = self.create_tool_button("Copy to Folder", self.copy_selected_images)
         self.moodboard_button = self.create_tool_button("Add to Moodboard", self.open_moodboard)
         self.select_all_button = self.create_tool_button("Select All", self.select_all_images)
         self.clear_selection_button = self.create_tool_button("Clear Selection", self.clear_selection)
@@ -416,7 +486,6 @@ class ImageGridWindow(QWidget):
         return btn
 
     def create_image_grid(self):
-        """Populate the grid with images from match results"""
         self.clear_grid()
         
         available_images = len(self.match_results)
@@ -427,13 +496,11 @@ class ImageGridWindow(QWidget):
         self.display_images(image_files)
 
     def get_image_subset(self, results, available, top_k, top_n):
-        """Get a subset of images to display"""
         if available <= top_k:
             return [img for img, _ in results]
         return [img for img, _ in random.sample(results[:top_n], top_k)]
 
     def display_images(self, image_files):
-        """Display images in the grid layout"""
         num_columns = 4
         image_size = 300
         
@@ -444,8 +511,7 @@ class ImageGridWindow(QWidget):
                 if pixmap.isNull():
                     continue
                     
-                pixmap = pixmap.scaled(image_size, image_size, 
-                                     Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                pixmap = pixmap.scaled(image_size, image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 
                 label = ClickableImageLabel(pixmap, img_file)
                 label.clicked.connect(self.on_image_clicked)
@@ -459,7 +525,6 @@ class ImageGridWindow(QWidget):
                 print(f"Error loading image {img_file}: {str(e)}")
 
     def on_image_clicked(self, img_name, label):
-        """Handle image selection"""
         if img_name in self.selected_images:
             self.selected_images.remove(img_name)
             label.set_selected(False)
@@ -470,14 +535,12 @@ class ImageGridWindow(QWidget):
         self.update_selection_count()
 
     def update_selection_count(self):
-        """Update the selected images counter"""
         count = len(self.selected_images)
         self.selected_count_label.setText(f"{count} selected")
         self.copy_button.setEnabled(count > 0)
         self.moodboard_button.setEnabled(count > 0)
 
     def select_all_images(self):
-        """Select all images in the grid"""
         for i in range(self.grid_layout.count()):
             item = self.grid_layout.itemAt(i)
             if isinstance(item.widget(), ClickableImageLabel):
@@ -487,7 +550,6 @@ class ImageGridWindow(QWidget):
         self.update_selection_count()
 
     def clear_selection(self):
-        """Clear all image selections"""
         for i in range(self.grid_layout.count()):
             item = self.grid_layout.itemAt(i)
             if isinstance(item.widget(), ClickableImageLabel):
@@ -496,14 +558,12 @@ class ImageGridWindow(QWidget):
         self.update_selection_count()
 
     def clear_grid(self):
-        """Clear all images from the grid"""
         while self.grid_layout.count():
             item = self.grid_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
     def shuffle_images(self):
-        """Shuffle the displayed images"""
         available_images = len(self.match_results)
         top_k = min(16, available_images)
         top_n = min(80, available_images)
@@ -522,16 +582,12 @@ class ImageGridWindow(QWidget):
         if not os.path.exists(image_path):
             QMessageBox.warning(self, "Error", f"Image not found:\n{image_path}")
             return
-        
         try:
             if sys.platform == 'win32':
-                # Windows - use explorer with /select parameter
                 os.startfile(os.path.normpath(image_path))
             elif sys.platform == 'darwin':
-                # macOS - use open with -R to reveal
                 subprocess.run(['open', '-R', image_path])
             else:
-                # Linux - try using xdg-open's parent directory
                 subprocess.run(['xdg-open', os.path.dirname(image_path)])
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Could not open folder:\n{str(e)}")
@@ -881,10 +937,35 @@ class MoodboardCanvasWindow(QMainWindow):
         self.selected_item = None
     
     def save_moodboard(self):
-        svg_file = "moodboard.svg"
-        with open(svg_file, "w") as f:
-            f.write(self.scene_to_svg())
-        print(f"Moodboard saved to {svg_file}")
+        # Open Save As dialogue
+        file_dialog = QFileDialog()
+        file_dialog.setDefaultSuffix("svg")
+        file_dialog.setAcceptMode(QFileDialog.AcceptSave)
+        file_dialog.setNameFilter("SVG Files (*.svg)")
+        file_dialog.setWindowTitle("Save Moodboard As")
+        
+        # Suggest a default filename
+        file_dialog.selectFile("moodboard.svg")
+        
+        if file_dialog.exec_():
+            svg_file = file_dialog.selectedFiles()[0]
+            try:
+                with open(svg_file, "w") as f:
+                    f.write(self.scene_to_svg())
+                QMessageBox.information(self, "Success", 
+                                    f"Moodboard successfully saved to:\n{svg_file}")
+                
+                # Open folder when success
+                if sys.platform == 'win32':
+                    subprocess.run(f'explorer /select,"{os.path.normpath(svg_file)}"', shell=True)
+                elif sys.platform == 'darwin':
+                    subprocess.run(['open', '-R', svg_file])
+                else:  # Linux
+                    subprocess.run(['xdg-open', os.path.dirname(svg_file)])
+                    
+            except Exception as e:
+                QMessageBox.critical(self, "Error", 
+                                f"Failed to save moodboard:\n{str(e)}")
 
     def add_images_to_scene(self, image_paths):
         last_width_pos = 0
@@ -922,6 +1003,7 @@ class MoodboardCanvasWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.scene.clear()
+        self.moodboard_items.clear()
         self.selected_item = None
 
 
