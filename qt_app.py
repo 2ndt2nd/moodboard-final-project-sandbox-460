@@ -268,6 +268,7 @@ class MainWindow(QMainWindow):
         home_layout.addWidget(self.input_label)
 
         self.input_box = QLineEdit()
+        self.input_box.setPlaceholderText("Type prompt or drag image here")
         self.input_box.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
         self.input_box.setAcceptDrops(True)
         self.input_box.dragEnterEvent = self.dragEnterEvent
@@ -469,7 +470,7 @@ class ImageGridWindow(QWidget):
         # Search input box
         search_layout = QHBoxLayout()
         self.input_box = QLineEdit()
-        self.input_box.setPlaceholderText("Search for more images...")
+        self.input_box.setPlaceholderText("Type prompt or drag image here")
         self.input_box.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
         self.input_box.setAcceptDrops(True)
         self.input_box.dragEnterEvent = self.dragEnterEvent
