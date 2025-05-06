@@ -7,8 +7,8 @@ import torch
 import clip
 from PIL import Image
 from tqdm import tqdm
-from PyQt5.QtCore import Qt, QObject, QUrl, QPointF, pyqtSignal, QTimer, QMimeData, QUrl
-from PyQt5.QtGui import QPixmap, QImage, QCursor, QKeySequence, QPainter
+from PyQt5.QtCore import Qt, QObject, QUrl, QPoint, QPointF, pyqtSignal, QTimer, QMimeData, QUrl
+from PyQt5.QtGui import QPixmap, QImage, QCursor, QKeySequence, QPainter, QDrag
 from PyQt5.QtSvg import QSvgGenerator
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem, QShortcut, QProgressBar, QProgressDialog, QMenu, QTabWidget, QFileDialog
 
@@ -112,6 +112,39 @@ def find_similar_images(image_features_dict, target_img_name, top_k=16):  # Incr
     
     return sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:top_k]
 
+def show_similar_images(self, img_name):
+    """Find and display similar images"""
+    progress = QProgressDialog("Finding similar images...", None, 0, 0, self)
+    progress.setWindowModality(Qt.WindowModal)
+    progress.show()
+    QApplication.processEvents()
+    
+    try:
+        similar_images = find_similar_images(self.image_features_dict, img_name, top_k=16)
+        text_descriptions = get_closest_texts(self.image_features_dict, self.text_features_dict, img_name, top_k=3)
+        
+        if len(similar_images) < 16 and text_descriptions:
+            text_based_matches = []
+            for desc in text_descriptions[:2]:
+                text_based_matches.extend(match_query(self.image_features_dict, self.text_features_dict, desc, None))
+            
+            existing_images = {img for img, _ in similar_images} | {img_name}
+            additional_matches = [
+                (img, score) for img, score in text_based_matches 
+                if img not in existing_images
+            ][:16 - len(similar_images)]
+            similar_images.extend(additional_matches)
+        
+        if similar_images:
+            title = f"Similar to {os.path.splitext(img_name)[0]}"
+            self.main_window.add_results_tab(title, similar_images)
+        else:
+            QMessageBox.warning(self, "No Results", "No similar images found.")
+            
+    finally:
+        progress.close()
+
+
 class ProgressSignal(QObject):
     progress_updated = pyqtSignal(int, int)  # (current, total)
     finished = pyqtSignal(list)
@@ -129,6 +162,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("MoodForager")
         self.setGeometry(sw//4, sh//4, 1200, 800)
         self.image_features_dict = {}
+        self.temp_text=""
 
         # Create main widget and layout
         self.main_widget = QWidget()
@@ -157,29 +191,10 @@ class MainWindow(QMainWindow):
         self.title_label.setStyleSheet("font-size: 30px; font-weight: bold; font-family: Arial;")
         home_layout.addWidget(self.title_label)
 
-        # Add drag and drop area
-        self.drop_area = QLabel("Drag & Drop Images Here to Find Similar Images")
-        self.drop_area.setStyleSheet("""
-            QLabel {
-                font-size: 16px;
-                border: 2px dashed #aaa;
-                padding: 20px;
-                min-height: 100px;
-                qproperty-alignment: AlignCenter;
-            }
-            QLabel:hover {
-                border: 2px dashed #666;
-                background-color: #f0f0f0;
-            }
-        """)
-        self.drop_area.setAcceptDrops(True)
-        self.drop_area.dragEnterEvent = self.dragEnterEvent
-        self.drop_area.dropEvent = self.dropEvent
-        home_layout.addWidget(self.drop_area)
 
         intro_label = QLabel(
             "MoodForager allows you to quickly create moodboards and accelerate your creative ideation!\n"
-            "- Retrieve images from a local library by selecting text\n"
+            "- Retrieve images from a local library by entering prompts or dragging in images\n"
             "- Select images to power your ideation\n"
             "- Find similar images to expand your search\n"
             "- Arrange your own moodboards and start working in no time!"
@@ -199,10 +214,16 @@ class MainWindow(QMainWindow):
         home_layout.addLayout(folder_layout)
 
         self.input_label = QLabel("Enter your prompt:")
+        self.input_label.setStyleSheet("font-size: 17px; min-height: 25px; padding: 2px; font-weight: bold;")
         home_layout.addWidget(self.input_label)
 
         self.input_box = QLineEdit()
         self.input_box.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
+        self.input_box.setAcceptDrops(True)
+        self.input_box.dragEnterEvent = self.dragEnterEvent
+        self.input_box.dragMoveEvent = self.dragMoveEvent
+        self.input_box.dropEvent = self.dropEvent
+        self.input_box.dragLeaveEvent = self.dragLeaveEvent
         home_layout.addWidget(self.input_box)
 
         self.progress_bar = QProgressBar()
@@ -251,11 +272,23 @@ class MainWindow(QMainWindow):
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
+            self.temp_text=self.input_box.text()
             event.acceptProposedAction()
         else:
             event.ignore()
 
+    def dragMoveEvent(self, event):
+        self.input_box.setStyleSheet("background-color: lightgreen; padding: 40px;")  # Hover effect
+        self.input_box.setText("Drop Image Here to Search")
+        event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self.input_box.setStyleSheet("background-color: white; font-size: 18px; min-height: 40px; padding: 5px;")
+        self.input_box.setText(self.temp_text)
+
     def dropEvent(self, event):
+        self.input_box.setText(self.temp_text)
+        self.input_box.setStyleSheet("background-color: white; font-size: 18px; min-height: 40px; padding: 5px;")
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
             if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
@@ -347,9 +380,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Please enter a prompt.")
             return
         
-        # if image_folder == "":
-        #     QMessageBox.warning(self, "Error", "Please select a folder")
-        #     return
+        if image_folder == "":
+            QMessageBox.warning(self, "Error", "Please select a folder")
+            return
 
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
@@ -377,7 +410,8 @@ class MainWindow(QMainWindow):
                 return
         
         # Create new tab
-        image_grid = ImageGridWindow(title, image_folder, self.image_features_dict, self.text_features_dict, results, main_window=self)
+        image_grid = ImageGridWindow(title, image_folder, self.image_features_dict, 
+                                self.text_features_dict, results, main_window=self)
         scroll = QScrollArea()
         scroll.setWidget(image_grid)
         scroll.setWidgetResizable(True)
@@ -385,7 +419,7 @@ class MainWindow(QMainWindow):
         # Add the tab
         self.tab_widget.addTab(scroll, title)
         self.tab_widget.setCurrentIndex(self.tab_widget.count() - 1)
-
+        
     def open_moodboard(self, image_paths):
         """Open the moodboard window with selected images"""
         if not image_paths:
@@ -421,6 +455,26 @@ class ImageGridWindow(QWidget):
         """Initialize all UI components"""
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Search input box
+        search_layout = QHBoxLayout()
+        self.input_box = QLineEdit()
+        self.input_box.setPlaceholderText("Search for more images...")
+        self.input_box.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
+        self.input_box.setAcceptDrops(True)
+        self.input_box.dragEnterEvent = self.dragEnterEvent
+        self.input_box.dragMoveEvent = self.dragMoveEvent
+        self.input_box.dropEvent = self.dropEvent
+        self.input_box.dragLeaveEvent = self.dragLeaveEvent
+        self.temp_text=""
+        
+        self.search_button = QPushButton("Search")
+        self.search_button.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
+        self.search_button.clicked.connect(self.perform_search)
+        
+        search_layout.addWidget(self.input_box)
+        search_layout.addWidget(self.search_button)
+        self.layout.addLayout(search_layout)
         
         # Header section
         header_layout = QHBoxLayout()
@@ -534,6 +588,47 @@ class ImageGridWindow(QWidget):
         
         self.update_selection_count()
 
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            self.temp_text=self.input_box.text()
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        self.input_box.setStyleSheet("background-color: lightgreen; font-size: 18px; min-height: 40px; padding: 5px;")
+        self.input_box.setText("Drop Image Here to Search")
+        event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self.input_box.setStyleSheet("background-color: white; font-size: 18px; min-height: 40px; padding: 5px;")
+        self.input_box.setText(self.temp_text)
+
+    def dropEvent(self, event):
+        self.input_box.setText(self.temp_text)
+        self.input_box.setStyleSheet("background-color: white; font-size: 18px; min-height: 40px; padding: 5px;")
+        for url in event.mimeData().urls():
+            file_path = url.toLocalFile()
+            if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
+                self.input_box.setText(self.temp_text)
+                show_similar_images(self, file_path)
+        event.acceptProposedAction()
+
+    def perform_search(self):
+        """Perform a new search using the input box text"""
+        search_text = self.input_box.text().strip()
+        if not search_text:
+            QMessageBox.warning(self, "Error", "Please enter a search query.")
+            return
+        
+        if not hasattr(self.main_window, 'image_features_dict') or not self.main_window.image_features_dict:
+            QMessageBox.warning(self, "Error", "No image embeddings loaded. Please select a folder first.")
+            return
+        
+        # Use the main window's search functionality
+        self.main_window.input_box.setText(search_text)
+        self.main_window.start_button_clicked() 
+
     def update_selection_count(self):
         count = len(self.selected_images)
         self.selected_count_label.setText(f"{count} selected")
@@ -635,7 +730,7 @@ class ImageGridWindow(QWidget):
         action = menu.exec_(QCursor.pos())
         
         if action == find_similar:
-            self.show_similar_images(img_name)
+            show_similar_images(self, img_name)
         elif action == open_action:
             self.open_image(img_name)
         elif action == select_all:
@@ -643,37 +738,6 @@ class ImageGridWindow(QWidget):
         elif action == clear_selection:
             self.clear_selection()
 
-    def show_similar_images(self, img_name):
-        """Find and display similar images"""
-        progress = QProgressDialog("Finding similar images...", None, 0, 0, self)
-        progress.setWindowModality(Qt.WindowModal)
-        progress.show()
-        QApplication.processEvents()
-        
-        try:
-            similar_images = find_similar_images(self.image_features_dict, img_name, top_k=16)
-            text_descriptions = get_closest_texts(self.image_features_dict, self.text_features_dict, img_name, top_k=3)
-            
-            if len(similar_images) < 16 and text_descriptions:
-                text_based_matches = []
-                for desc in text_descriptions[:2]:
-                    text_based_matches.extend(match_query(self.image_features_dict, self.text_features_dict, desc, None))
-                
-                existing_images = {img for img, _ in similar_images} | {img_name}
-                additional_matches = [
-                    (img, score) for img, score in text_based_matches 
-                    if img not in existing_images
-                ][:16 - len(similar_images)]
-                similar_images.extend(additional_matches)
-            
-            if similar_images:
-                title = f"Similar to {os.path.splitext(img_name)[0]}"
-                self.main_window.add_results_tab(title, similar_images)
-            else:
-                QMessageBox.warning(self, "No Results", "No similar images found.")
-                
-        finally:
-            progress.close()
 
     def open_moodboard(self):
         """Open selected images in moodboard"""
@@ -687,10 +751,10 @@ class ImageGridWindow(QWidget):
 
 
 class ClickableImageLabel(QLabel):
-    """Custom QLabel that handles click events and selection state"""
+    """Custom QLabel that handles click events, selection state, and dragging"""
     clicked = pyqtSignal(str, object)  # (image_name, label)
     right_clicked = pyqtSignal(QPointF, str)  # (position, image_name)
-    
+
     def __init__(self, pixmap, image_name):
         super().__init__()
         self.image_name = image_name
@@ -698,19 +762,43 @@ class ClickableImageLabel(QLabel):
         self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet("border: 2px solid transparent;")
         self.set_selected(False)
-        
+        self._drag_start_pos = None
+
     def set_selected(self, selected):
         """Update visual selection state"""
         self.selected = selected
         border = "2px solid blue" if selected else "2px solid transparent"
         self.setStyleSheet(f"border: {border};")
-        
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
+            self._drag_start_pos = event.pos()
             self.clicked.emit(self.image_name, self)
         elif event.button() == Qt.RightButton:
             self.right_clicked.emit(event.pos(), self.image_name)
 
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.LeftButton:
+            if self._drag_start_pos and (event.pos() - self._drag_start_pos).manhattanLength() > QApplication.startDragDistance():
+                self.start_drag()
+
+    def start_drag(self):
+        drag = QDrag(self)
+        mime_data = QMimeData()
+
+        # Convert image path to a file URL and set it
+        url = QUrl.fromLocalFile(self.image_name)
+        mime_data.setUrls([url])  # This allows drop targets to treat it like a real file
+
+        drag.setMimeData(mime_data)
+
+        # Optional: show image thumbnail while dragging
+        drag.setPixmap(self.pixmap().scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        drag.setHotSpot(QPoint(32, 32))  # Center of thumbnail
+
+        drag.exec_(Qt.CopyAction | Qt.MoveAction)
+
+        
 class ResizablePixmapItem(QGraphicsPixmapItem):
     def __init__(self, pixmap, name = None):
         super().__init__(pixmap)
