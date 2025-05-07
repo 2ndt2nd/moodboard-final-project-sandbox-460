@@ -163,7 +163,7 @@ def show_similar_images(self, img_name_or_path):
         # Check if this is a path to an external image
         if os.path.exists(img_name_or_path):
             # Process as external image
-            process_dropped_image(self, img_name_or_path)
+            process_dropped_image(self.main_window, img_name_or_path)
             return
             
         # Otherwise treat as image from our dataset
@@ -622,7 +622,7 @@ class ImageGridWindow(QWidget):
             file_path = url.toLocalFile()
             if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
                 self.input_box.setText(self.temp_text)
-                show_similar_images(self.main_window, file_path)
+                show_similar_images(self, file_path)
         event.acceptProposedAction()
 
     def perform_search(self):
