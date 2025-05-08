@@ -23,6 +23,24 @@ device = "cpu"
 # Global dictionary to store sorted results for each prompt
 # prompt_results_cache = {}
 
+def create_tool_button(self, text, handler):
+    """Helper to create consistent toolbar buttons"""
+    btn = QPushButton(text)
+    btn.setStyleSheet("""
+        QPushButton {
+            font-size: 14px; 
+            min-height: 30px; 
+            padding: 5px 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        QPushButton:hover {
+            background: #f0f0f0;
+        }
+    """)
+    btn.clicked.connect(handler)
+    return btn
+
 def create_click_handler(parent, img_name, label):
     def handler(event):
         if event.button() == Qt.LeftButton:
@@ -302,9 +320,7 @@ class MainWindow(QMainWindow):
         self.progress_signal.progress_updated.connect(self.update_progress)
         self.progress_signal.finished.connect(self.on_similarity_complete)
 
-        self.start_button = QPushButton("Start")
-        self.start_button.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
-        self.start_button.clicked.connect(self.start_button_clicked)
+        self.start_button = create_tool_button(self, "Start", self.start_button_clicked)
         home_layout.addWidget(self.start_button)
 
         # self.start_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
@@ -542,11 +558,11 @@ class ImageGridWindow(QWidget):
         toolbar.setSpacing(10)
 
         # Action buttons
-        self.shuffle_button = self.create_tool_button("Shuffle", self.shuffle_images)
-        self.copy_button = self.create_tool_button("Copy to Folder", self.copy_selected_images)
-        self.moodboard_button = self.create_tool_button("Add to Moodboard", self.open_moodboard)
-        self.select_all_button = self.create_tool_button("Select All", self.select_all_images)
-        self.clear_selection_button = self.create_tool_button("Clear Selection", self.clear_selection)
+        self.shuffle_button = create_tool_button(self, "Shuffle", self.shuffle_images)
+        self.copy_button = create_tool_button(self, "Copy to Folder", self.copy_selected_images)
+        self.moodboard_button = create_tool_button(self, "Add to Moodboard", self.open_moodboard)
+        self.select_all_button = create_tool_button(self, "Select All", self.select_all_images)
+        self.clear_selection_button = create_tool_button(self, "Clear Selection", self.clear_selection)
 
         # Add buttons to toolbar
         for btn in [self.shuffle_button, self.copy_button, self.moodboard_button, 
@@ -556,23 +572,6 @@ class ImageGridWindow(QWidget):
         toolbar.addStretch()
         self.layout.addLayout(toolbar)
 
-    def create_tool_button(self, text, handler):
-        """Helper to create consistent toolbar buttons"""
-        btn = QPushButton(text)
-        btn.setStyleSheet("""
-            QPushButton {
-                font-size: 14px; 
-                min-height: 30px; 
-                padding: 5px 10px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background: #f0f0f0;
-            }
-        """)
-        btn.clicked.connect(handler)
-        return btn
 
     def create_image_grid(self):
         self.clear_grid()
@@ -956,34 +955,24 @@ class MoodboardCanvasWindow(QMainWindow):
         button_row = QHBoxLayout()
         
         # Zoom Out button
-        self.zoom_out_button = QPushButton("Zoom Out")
-        self.zoom_out_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.zoom_out_button.clicked.connect(self.zoom_out)
+        self.zoom_out_button = create_tool_button(self, "Zoom Out", self.zoom_out)
         button_row.addWidget(self.zoom_out_button)
         
         # Zoom In button
-        self.zoom_in_button = QPushButton("Zoom In")
-        self.zoom_in_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.zoom_in_button.clicked.connect(self.zoom_in)
+        self.zoom_in_button = create_tool_button(self, "Zoom In", self.zoom_in)
         button_row.addWidget(self.zoom_in_button)
         
         # Clear Board button
-        self.clear_board_button = QPushButton("Clear Canvas")
-        self.clear_board_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.clear_board_button.clicked.connect(self.clear_board)
+        self.clear_board_button = create_tool_button(self, "Clear Moodboard", self.clear_board)
         button_row.addWidget(self.clear_board_button)
         
 
         # Reset Zoom button
-        self.reset_zoom_button = QPushButton("Reset Zoom")
-        self.reset_zoom_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.reset_zoom_button.clicked.connect(self.reset_zoom)
+        self.reset_zoom_button = create_tool_button(self, "Reset Zoom", self.reset_zoom)
         button_row.addWidget(self.reset_zoom_button)
 
         # Add Save button
-        self.save_button = QPushButton("Save Moodboard as SVG")
-        self.save_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.save_button.clicked.connect(self.save_moodboard)
+        self.save_button = create_tool_button(self, "Save to SVG", self.save_moodboard)
         button_row.addWidget(self.save_button)
 
         shortcut_hints = QLabel(
