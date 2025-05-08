@@ -164,7 +164,7 @@ def show_similar_images(self, img_name_or_path):
         if os.path.exists(img_name_or_path):
             # Process as external image
             process_dropped_image(self.main_window, img_name_or_path)
-            return
+            
             
         # Otherwise treat as image from our dataset
         if img_name_or_path not in self.image_features_dict:
@@ -187,13 +187,27 @@ def show_similar_images(self, img_name_or_path):
             similar_images.extend(additional_matches)
         
         if similar_images:
-            title = f"Similar to {os.path.splitext(img_name_or_path)[0]}"
+            title = f"Similar to {os.path.splitext(img_name_or_path)[0]}, and {text_descriptions}"
             self.main_window.add_results_tab(title, similar_images)
         else:
             QMessageBox.warning(self, "No Results", "No similar images found.")
             
     finally:
         progress.close()
+
+def perform_search(window, query, image_features_dict, text_features_dict, progress_signal):
+    """Standalone function to perform a search"""
+    if not query:
+        QMessageBox.warning(window, "Error", "Please enter a search query.")
+        return
+    
+    if not image_features_dict:
+        QMessageBox.warning(window, "Error", "No image embeddings loaded. Please select a folder first.")
+        return
+    
+    window.progress_bar.setVisible(True)
+    window.progress_bar.setValue(0)
+    match_query(image_features_dict, text_features_dict, query, progress_signal)
 
 class ProgressSignal(QObject):
     progress_updated = pyqtSignal(int, int)  # (current, total)
@@ -212,6 +226,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("MoodForager")
         self.setGeometry(sw//4, sh//4, 1200, 800)
         self.image_features_dict = {}
+        self.text_features_dict = {}
         self.temp_text=""
 
         # Create main widget and layout
@@ -275,6 +290,7 @@ class MainWindow(QMainWindow):
         self.input_box.dragMoveEvent = self.dragMoveEvent
         self.input_box.dropEvent = self.dropEvent
         self.input_box.dragLeaveEvent = self.dragLeaveEvent
+        self.input_box.returnPressed.connect(self.start_button_clicked)
         home_layout.addWidget(self.input_box)
 
         self.progress_bar = QProgressBar()
@@ -291,8 +307,10 @@ class MainWindow(QMainWindow):
         self.start_button.clicked.connect(self.start_button_clicked)
         home_layout.addWidget(self.start_button)
 
-        self.start_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
-        self.start_shortcut.activated.connect(self.start_button_clicked)
+        # self.start_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
+        # self.start_shortcut.activated.connect(self.start_button_clicked)
+        
+        self.temp_text=""
 
         reference_label = QLabel(
             "Using CLIP by OpenAI\n\n"
@@ -386,20 +404,14 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Failed to load embeddings:\n{str(e)}")
 
     def start_button_clicked(self):
-        input_text = self.input_box.text()
-        if not input_text:
-            QMessageBox.warning(self, "Error", "Please enter a prompt.")
-            return
+        perform_search(
+            window=self,
+            query=self.input_box.text(),
+            image_features_dict=self.image_features_dict,
+            text_features_dict=self.text_features_dict,
+            progress_signal=self.progress_signal
+        )
         
-        if image_folder == "":
-            QMessageBox.warning(self, "Error", "Please select a folder")
-            return
-
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
-        self.start_button.setEnabled(False)
-        match_query(self.image_features_dict, self.text_features_dict, input_text, self.progress_signal)
-   
     def update_progress(self, current, total):
         percent = int((current / total) * 100)
         self.progress_bar.setValue(percent)
@@ -453,6 +465,7 @@ class ImageGridWindow(QWidget):
         self.image_folder = class_folder
         self.image_features_dict = image_features_dict
         self.text_features_dict = text_features_dict
+        
 
         self.input_text = input_text
         self.selected_images = set()  # Using set instead of dict for selected images
@@ -467,6 +480,8 @@ class ImageGridWindow(QWidget):
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(10, 10, 10, 10)
         
+        self.temp_text=""
+        
         # Search input box
         search_layout = QHBoxLayout()
         self.input_box = QLineEdit()
@@ -477,7 +492,7 @@ class ImageGridWindow(QWidget):
         self.input_box.dragMoveEvent = self.dragMoveEvent
         self.input_box.dropEvent = self.dropEvent
         self.input_box.dragLeaveEvent = self.dragLeaveEvent
-        self.temp_text=""
+        self.input_box.returnPressed.connect(self.perform_search)
         
         self.search_button = QPushButton("Search")
         self.search_button.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
@@ -486,6 +501,15 @@ class ImageGridWindow(QWidget):
         search_layout.addWidget(self.input_box)
         search_layout.addWidget(self.search_button)
         self.layout.addLayout(search_layout)
+        
+        self.progress_signal = ProgressSignal()
+        self.progress_signal.progress_updated.connect(self.update_progress)
+        self.progress_signal.finished.connect(self.on_similarity_complete)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setVisible(False)
+        self.layout.addWidget(self.progress_bar)
         
         # Header section
         header_layout = QHBoxLayout()
@@ -625,20 +649,21 @@ class ImageGridWindow(QWidget):
                 show_similar_images(self, file_path)
         event.acceptProposedAction()
 
+    def update_progress(self, current, total):
+        percent = int((current / total) * 100)
+        self.progress_bar.setValue(percent)
+
+    def on_similarity_complete(self, results):
+        self.progress_bar.setVisible(False)
+        self.search_button.setEnabled(True)
+        
+        # Create a new tab for the results
+        self.main_window.add_results_tab(self.input_box.text(), results)
+
     def perform_search(self):
-        """Perform a new search using the input box text"""
+        """Handle search from within the ImageGridWindow"""
         search_text = self.input_box.text().strip()
-        if not search_text:
-            QMessageBox.warning(self, "Error", "Please enter a search query.")
-            return
-        
-        if not hasattr(self.main_window, 'image_features_dict') or not self.main_window.image_features_dict:
-            QMessageBox.warning(self, "Error", "No image embeddings loaded. Please select a folder first.")
-            return
-        
-        # Use the main window's search functionality
-        self.main_window.input_box.setText(search_text)
-        self.main_window.start_button_clicked() 
+        perform_search(self,search_text,self.image_features_dict,self.text_features_dict,self.progress_signal)
 
     def update_selection_count(self):
         count = len(self.selected_images)
