@@ -256,6 +256,8 @@ class MainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.tabCloseRequested.connect(self.close_tab)
+        self.close_tab_shortcut = QShortcut(QKeySequence("Ctrl+W"), self)
+        self.close_tab_shortcut.activated.connect(self.close_tab)
         self.layout.addWidget(self.tab_widget)
 
         # Add home tab
@@ -308,7 +310,6 @@ class MainWindow(QMainWindow):
         self.input_box.dragMoveEvent = self.dragMoveEvent
         self.input_box.dropEvent = self.dropEvent
         self.input_box.dragLeaveEvent = self.dragLeaveEvent
-        self.input_box.returnPressed.connect(self.start_button_clicked)
         home_layout.addWidget(self.input_box)
 
         self.progress_bar = QProgressBar()
@@ -322,9 +323,8 @@ class MainWindow(QMainWindow):
 
         self.start_button = create_tool_button(self, "Start", self.start_button_clicked)
         home_layout.addWidget(self.start_button)
-
-        # self.start_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
-        # self.start_shortcut.activated.connect(self.start_button_clicked)
+        self.enter_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
+        self.enter_shortcut.activated.connect(self.start_button_clicked)
         
         self.temp_text=""
 
@@ -350,8 +350,9 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(home_tab, "Home")
         self.tab_widget.setCurrentIndex(0)
 
-    def close_tab(self, index):
+    def close_tab(self):
         """Close a tab at the given index"""
+        index = self.tab_widget.currentIndex()
         if index != 0:  # Don't close the home tab
             self.tab_widget.removeTab(index)
 
@@ -481,7 +482,6 @@ class ImageGridWindow(QWidget):
         self.image_folder = class_folder
         self.image_features_dict = image_features_dict
         self.text_features_dict = text_features_dict
-        
 
         self.input_text = input_text
         self.selected_images = set()  # Using set instead of dict for selected images
@@ -491,6 +491,8 @@ class ImageGridWindow(QWidget):
         if self.match_results:
             self.create_image_grid()
 
+    
+    
     def setup_ui(self):
         """Initialize all UI components"""
         self.layout = QVBoxLayout(self)
@@ -513,6 +515,8 @@ class ImageGridWindow(QWidget):
         self.search_button = QPushButton("Search")
         self.search_button.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
         self.search_button.clicked.connect(self.perform_search)
+        self.enter_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
+        self.enter_shortcut.activated.connect(self.perform_search)
         
         search_layout.addWidget(self.input_box)
         search_layout.addWidget(self.search_button)
@@ -571,7 +575,6 @@ class ImageGridWindow(QWidget):
 
         toolbar.addStretch()
         self.layout.addLayout(toolbar)
-
 
     def create_image_grid(self):
         self.clear_grid()
