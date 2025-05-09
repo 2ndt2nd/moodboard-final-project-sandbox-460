@@ -1,4 +1,4 @@
 @echo off
-call .venv/scripts/activate
+call venv/scripts/activate
 python qt_app.py
 pause
