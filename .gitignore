@@ -10,9 +10,14 @@ venv
 *.zip
 1k-unsplash
 *.jpg
-
+1k*
+importaes*
 copied_images
 pixiv_illustration_dataset
 selection_images
 unsplash_illustration_dataset
 illustration_dataset
+ali4
+embed.py
+*.bat
+qt_app.bat
