@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import random
 import shutil
 import threading
@@ -10,7 +11,7 @@ from tqdm import tqdm
 from PyQt5.QtCore import Qt, QObject, QUrl, QPoint, QPointF, pyqtSignal, QTimer, QMimeData, QUrl
 from PyQt5.QtGui import QPixmap, QImage, QCursor, QKeySequence, QPainter, QDrag
 from PyQt5.QtSvg import QSvgGenerator
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem, QShortcut, QProgressBar, QProgressDialog, QMenu, QTabWidget, QFileDialog
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QGridLayout, QMessageBox, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem, QShortcut, QProgressBar, QProgressDialog, QMenu, QTabWidget, QFileDialog, QComboBox
 
 
 # Global variables
@@ -228,6 +229,15 @@ class MainWindow(QMainWindow):
         self.image_features_dict = {}
         self.text_features_dict = {}
         self.temp_text=""
+        
+        self.history_file = os.path.expanduser("~/.moodforager_history.json")
+        self.folder_dropdown = QComboBox()
+        self.folder_dropdown.currentIndexChanged.connect(self.load_folder_from_history)
+
+        # Load saved folders into dropdown
+        self.recent_folders = self.load_folder_history()
+        self.folder_dropdown.addItems(self.recent_folders)
+
 
         # Create main widget and layout
         self.main_widget = QWidget()
@@ -271,6 +281,8 @@ class MainWindow(QMainWindow):
         self.folder_label = QLabel("Target folder: Not selected")
         self.folder_label.setStyleSheet("font-size: 12px;")
         folder_layout.addWidget(self.folder_label)
+        
+        folder_layout.addWidget(self.folder_dropdown)
         
         self.folder_button = QPushButton("Browse...")
         self.folder_button.setStyleSheet("font-size: 12px; min-height: 25px; padding: 2px;")
@@ -364,44 +376,81 @@ class MainWindow(QMainWindow):
                 process_dropped_image(self,file_path)
         event.acceptProposedAction()
 
+    def load_folder(self, folder):
+        embeddings_path = os.path.join(folder, "img.pt")
+        if not os.path.exists(embeddings_path):
+            self.folder_label.setText(f"Target folder {folder} has no image embeddings!")
+            QMessageBox.warning(self, "Error", "The selected folder doesn't contain img.pt")
+            return
+
+        try:
+            progress = QProgressDialog("Loading image embeddings...", None, 0, 0, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setCancelButton(None)
+            progress.show()
+            QApplication.processEvents()
+
+            def load_embeddings():
+                global image_folder
+                self.image_features_dict = torch.load(embeddings_path, map_location=torch.device('cpu'), weights_only=True)
+                self.text_features_dict = torch.load(os.path.join(folder, "text.pt"), map_location=torch.device('cpu'), weights_only=True)
+
+                image_folder = folder
+                self.folder_label.setText(f"Target folder: {folder}")
+                self.folder_label.setToolTip(folder)
+                progress.close()
+
+            QTimer.singleShot(100, load_embeddings)
+
+        except Exception as e:
+            self.folder_label.setText(f"Error loading embeddings from {folder}")
+            QMessageBox.critical(self, "Error", f"Failed to load embeddings:\n{str(e)}")
+
+
+    def load_folder_history(self):
+        if os.path.exists(self.history_file):
+            try:
+                with open(self.history_file, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Error reading folder history: {e}")
+        return []
+
+    def load_folder_from_history(self, index):
+        if index < 0:
+            return
+        folder = self.folder_dropdown.itemText(index)
+        if folder:
+            self.load_folder(folder)
+    
+    def save_folder_history(self, folder):
+        history = self.load_folder_history()
+        if folder in history:
+            history.remove(folder)
+        history.insert(0, folder)
+        history = history[:5]  # Keep most recent 5
+        try:
+            with open(self.history_file, 'w') as f:
+                json.dump(history, f)
+        except Exception as e:
+            print(f"Error writing folder history: {e}")
+
     def select_folder(self):
-        """Open a folder selection dialog and store the selected path"""
         folder = QFileDialog.getExistingDirectory(
             self,
             "Select Target Folder",
-            "",  # Start in current directory
+            "",
             QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
         )
-        
+
         if folder:
-            embeddings_path = os.path.join(folder, "img.pt")
-            if not os.path.exists(embeddings_path):
-                self.folder_label.setText(f"Target folder {folder} has no image embeddings!")
-                QMessageBox.warning(self, "Error", "The selected folder doesn't contain img.pt")
-                return
-                
-            try:
-                progress = QProgressDialog("Loading image embeddings...", None, 0, 0, self)
-                progress.setWindowModality(Qt.WindowModal)
-                progress.setCancelButton(None)
-                progress.show()
-                QApplication.processEvents()
-                
-                def load_embeddings():
-                    global image_folder
-                    self.image_features_dict = torch.load(embeddings_path, map_location=torch.device('cpu'), weights_only=True)
-                    self.text_features_dict = torch.load(os.path.join(folder, "text.pt"), map_location=torch.device('cpu'), weights_only=True)
+            self.load_folder(folder)
+            self.save_folder_history(folder)
 
-                    image_folder = folder
-                    self.folder_label.setText(f"Target folder: {folder}")
-                    self.folder_label.setToolTip(folder)
-                    progress.close()
-                
-                QTimer.singleShot(100, load_embeddings)
-
-            except Exception as e:
-                self.folder_label.setText(f"Error loading embeddings from {folder}")
-                QMessageBox.critical(self, "Error", f"Failed to load embeddings:\n{str(e)}")
+            # Update dropdown
+            self.recent_folders = self.load_folder_history()
+            self.folder_dropdown.clear()
+            self.folder_dropdown.addItems(self.recent_folders)
 
     def start_button_clicked(self):
         perform_search(
