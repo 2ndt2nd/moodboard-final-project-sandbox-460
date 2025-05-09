@@ -24,6 +24,24 @@ device = "cpu"
 # Global dictionary to store sorted results for each prompt
 # prompt_results_cache = {}
 
+def create_tool_button(self, text, handler):
+    """Helper to create consistent toolbar buttons"""
+    btn = QPushButton(text)
+    btn.setStyleSheet("""
+        QPushButton {
+            font-size: 14px; 
+            min-height: 30px; 
+            padding: 5px 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        QPushButton:hover {
+            background: #f0f0f0;
+        }
+    """)
+    btn.clicked.connect(handler)
+    return btn
+
 def create_click_handler(parent, img_name, label):
     def handler(event):
         if event.button() == Qt.LeftButton:
@@ -248,6 +266,8 @@ class MainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.tabCloseRequested.connect(self.close_tab)
+        self.close_tab_shortcut = QShortcut(QKeySequence("Ctrl+W"), self)
+        self.close_tab_shortcut.activated.connect(self.close_tab)
         self.layout.addWidget(self.tab_widget)
 
         # Add home tab
@@ -302,7 +322,6 @@ class MainWindow(QMainWindow):
         self.input_box.dragMoveEvent = self.dragMoveEvent
         self.input_box.dropEvent = self.dropEvent
         self.input_box.dragLeaveEvent = self.dragLeaveEvent
-        self.input_box.returnPressed.connect(self.start_button_clicked)
         home_layout.addWidget(self.input_box)
 
         self.progress_bar = QProgressBar()
@@ -314,13 +333,10 @@ class MainWindow(QMainWindow):
         self.progress_signal.progress_updated.connect(self.update_progress)
         self.progress_signal.finished.connect(self.on_similarity_complete)
 
-        self.start_button = QPushButton("Start")
-        self.start_button.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
-        self.start_button.clicked.connect(self.start_button_clicked)
+        self.start_button = create_tool_button(self, "Start", self.start_button_clicked)
         home_layout.addWidget(self.start_button)
-
-        # self.start_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
-        # self.start_shortcut.activated.connect(self.start_button_clicked)
+        self.enter_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
+        self.enter_shortcut.activated.connect(self.start_button_clicked)
         
         self.temp_text=""
 
@@ -346,8 +362,9 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(home_tab, "Home")
         self.tab_widget.setCurrentIndex(0)
 
-    def close_tab(self, index):
+    def close_tab(self):
         """Close a tab at the given index"""
+        index = self.tab_widget.currentIndex()
         if index != 0:  # Don't close the home tab
             self.tab_widget.removeTab(index)
 
@@ -514,7 +531,6 @@ class ImageGridWindow(QWidget):
         self.image_folder = class_folder
         self.image_features_dict = image_features_dict
         self.text_features_dict = text_features_dict
-        
 
         self.input_text = input_text
         self.selected_images = set()  # Using set instead of dict for selected images
@@ -524,6 +540,8 @@ class ImageGridWindow(QWidget):
         if self.match_results:
             self.create_image_grid()
 
+    
+    
     def setup_ui(self):
         """Initialize all UI components"""
         self.layout = QVBoxLayout(self)
@@ -546,6 +564,8 @@ class ImageGridWindow(QWidget):
         self.search_button = QPushButton("Search")
         self.search_button.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
         self.search_button.clicked.connect(self.perform_search)
+        self.enter_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
+        self.enter_shortcut.activated.connect(self.perform_search)
         
         search_layout.addWidget(self.input_box)
         search_layout.addWidget(self.search_button)
@@ -591,11 +611,11 @@ class ImageGridWindow(QWidget):
         toolbar.setSpacing(10)
 
         # Action buttons
-        self.shuffle_button = self.create_tool_button("Shuffle", self.shuffle_images)
-        self.copy_button = self.create_tool_button("Copy to Folder", self.copy_selected_images)
-        self.moodboard_button = self.create_tool_button("Add to Moodboard", self.open_moodboard)
-        self.select_all_button = self.create_tool_button("Select All", self.select_all_images)
-        self.clear_selection_button = self.create_tool_button("Clear Selection", self.clear_selection)
+        self.shuffle_button = create_tool_button(self, "Shuffle", self.shuffle_images)
+        self.copy_button = create_tool_button(self, "Copy to Folder", self.copy_selected_images)
+        self.moodboard_button = create_tool_button(self, "Add to Moodboard", self.open_moodboard)
+        self.select_all_button = create_tool_button(self, "Select All", self.select_all_images)
+        self.clear_selection_button = create_tool_button(self, "Clear Selection", self.clear_selection)
 
         # Add buttons to toolbar
         for btn in [self.shuffle_button, self.copy_button, self.moodboard_button, 
@@ -604,24 +624,6 @@ class ImageGridWindow(QWidget):
 
         toolbar.addStretch()
         self.layout.addLayout(toolbar)
-
-    def create_tool_button(self, text, handler):
-        """Helper to create consistent toolbar buttons"""
-        btn = QPushButton(text)
-        btn.setStyleSheet("""
-            QPushButton {
-                font-size: 14px; 
-                min-height: 30px; 
-                padding: 5px 10px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background: #f0f0f0;
-            }
-        """)
-        btn.clicked.connect(handler)
-        return btn
 
     def create_image_grid(self):
         self.clear_grid()
@@ -1005,34 +1007,24 @@ class MoodboardCanvasWindow(QMainWindow):
         button_row = QHBoxLayout()
         
         # Zoom Out button
-        self.zoom_out_button = QPushButton("Zoom Out")
-        self.zoom_out_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.zoom_out_button.clicked.connect(self.zoom_out)
+        self.zoom_out_button = create_tool_button(self, "Zoom Out", self.zoom_out)
         button_row.addWidget(self.zoom_out_button)
         
         # Zoom In button
-        self.zoom_in_button = QPushButton("Zoom In")
-        self.zoom_in_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.zoom_in_button.clicked.connect(self.zoom_in)
+        self.zoom_in_button = create_tool_button(self, "Zoom In", self.zoom_in)
         button_row.addWidget(self.zoom_in_button)
         
         # Clear Board button
-        self.clear_board_button = QPushButton("Clear Canvas")
-        self.clear_board_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.clear_board_button.clicked.connect(self.clear_board)
+        self.clear_board_button = create_tool_button(self, "Clear Moodboard", self.clear_board)
         button_row.addWidget(self.clear_board_button)
         
 
         # Reset Zoom button
-        self.reset_zoom_button = QPushButton("Reset Zoom")
-        self.reset_zoom_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.reset_zoom_button.clicked.connect(self.reset_zoom)
+        self.reset_zoom_button = create_tool_button(self, "Reset Zoom", self.reset_zoom)
         button_row.addWidget(self.reset_zoom_button)
 
         # Add Save button
-        self.save_button = QPushButton("Save Moodboard as SVG")
-        self.save_button.setStyleSheet("font-size: 15px; min-height: 30px; padding: 2px;")
-        self.save_button.clicked.connect(self.save_moodboard)
+        self.save_button = create_tool_button(self, "Save to SVG", self.save_moodboard)
         button_row.addWidget(self.save_button)
 
         shortcut_hints = QLabel(
