@@ -335,8 +335,7 @@ class MainWindow(QMainWindow):
 
         self.start_button = create_tool_button(self, "Start", self.start_button_clicked)
         home_layout.addWidget(self.start_button)
-        self.enter_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
-        self.enter_shortcut.activated.connect(self.start_button_clicked)
+        self.input_box.returnPressed.connect(self.start_button_clicked)
         
         self.temp_text=""
 
@@ -564,8 +563,6 @@ class ImageGridWindow(QWidget):
         self.search_button = QPushButton("Search")
         self.search_button.setStyleSheet("font-size: 18px; min-height: 40px; padding: 5px;")
         self.search_button.clicked.connect(self.perform_search)
-        self.enter_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
-        self.enter_shortcut.activated.connect(self.perform_search)
         
         search_layout.addWidget(self.input_box)
         search_layout.addWidget(self.search_button)
