@@ -26,6 +26,7 @@ jobs:
         run: |
           # Remove py2app temp folders to avoid file exists error
           rm -rf /tmp/tmp.*
+          rm -rf /tmp/tmp.* /var/folders/w5/_8wgjw3j5cg6mgrth3s2kg9m0000gn/T/tmp.*
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v4
