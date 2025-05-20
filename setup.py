@@ -1,3 +1,6 @@
+import sys
+sys.setrecursionlimit(10000)  # Increase recursion limit to avoid RecursionError during build
+
 from setuptools import setup
 
 APP = ['qt_app.py']
@@ -13,7 +16,6 @@ OPTIONS = {
         'CFBundleShortVersionString': '1.0.0',
         'NSHumanReadableCopyright': 'Copyright © 2023 Your Name',
     },
-    # Remove this line: 'iconfile': 'app_icon.icns',
     'optimize': 2,
 }
 
