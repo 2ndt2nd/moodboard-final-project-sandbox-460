@@ -53,23 +53,25 @@ jobs:
           pip install git+https://github.com/openai/CLIP.git
           pip install tqdm==4.66.1 pillow==10.0.1 py2app==0.28.6
 
-      - name: Build application
-        run: |
-          # Create isolated build directory
-          export BUILD_DIR=$(mktemp -d)
-          echo "Building in: $BUILD_DIR"
+          - name: Build application
+            run: |
+              # Use a unique temp dir for this specific build
+              export BUILD_DIR=$(mktemp -d)
+              echo "Building in: $BUILD_DIR"
           
-          python setup.py py2app \
-            --no-strip \
-            --bdist-base=$BUILD_DIR \
-            --dist-dir=$BUILD_DIR/dist
+              # Force a clean, non-overlapping py2app build with a unique dist dir
+              python setup.py py2app \
+                --no-strip \
+                --no-chdir \
+                --bdist-base=$BUILD_DIR \
+                --dist-dir=$BUILD_DIR/dist
           
-          # Fix Qt paths
-          find $BUILD_DIR/dist -name "Qt*" -exec install_name_tool -add_rpath @executable_path/../Frameworks {} \;
+              # Fix Qt rpaths
+              find $BUILD_DIR/dist -name "Qt*" -exec install_name_tool -add_rpath @executable_path/../Frameworks {} \;
           
-          # Copy to final location
-          mkdir -p dist
-          cp -R $BUILD_DIR/dist/MoodForager.app dist/
+              # Move to final output directory
+              mkdir -p dist
+              cp -R $BUILD_DIR/dist/MoodForager.app dist/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
