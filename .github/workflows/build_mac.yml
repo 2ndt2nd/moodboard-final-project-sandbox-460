@@ -24,15 +24,18 @@ jobs:
       - name: Install system dependencies
         run: |
           brew install libpng jpeg
+          # Required for PyQt5
+          brew install qt@5
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip wheel
-          pip install py2app==0.28.6
-          pip install PyQt5==5.15.9
+          # Install PyQt5 from pre-built wheels
+          pip install PyQt5==5.15.7 PyQt5-Qt5==5.15.2 PyQt5-sip==12.11.0
+          # Install other dependencies
           pip install --pre torch==2.1.0 --extra-index-url https://download.pytorch.org/whl/nightly/cpu
           pip install git+https://github.com/openai/CLIP.git
-          pip install tqdm==4.66.1 pillow==10.0.1
+          pip install tqdm==4.66.1 pillow==10.0.1 py2app==0.28.6
 
       - name: Create optimized setup.py
         run: |
@@ -42,12 +45,11 @@ jobs:
           
           from setuptools import setup
 
-          # Explicit imports for py2app
+          # Force include Qt components
           import PyQt5.QtCore
           import PyQt5.QtGui
           import PyQt5.QtWidgets
           import PyQt5.QtSvg
-          import PIL.Image
 
           APP = ['qt_app.py']
           DATA_FILES = []
@@ -55,15 +57,15 @@ jobs:
               'argv_emulation': False,
               'packages': ['PyQt5', 'torch', 'clip', 'tqdm', 'PIL'],
               'includes': [
-                  'numpy',  # Required by torch
+                  'numpy',
                   'PIL.Image',
                   'PIL.ImageDraw',
                   'PIL.ImageFont'
               ],
               'excludes': [
                   'tkinter',
-                  'matplotlib',  # Common unnecessary heavy dependency
-                  'scipy'       # Often pulled in but not needed
+                  'matplotlib',
+                  'scipy'
               ],
               'resources': [],
               'compressed': True,
@@ -73,7 +75,7 @@ jobs:
                   'CFBundleShortVersionString': '1.0.0',
                   'CFBundleIdentifier': 'com.yourdomain.moodforager',
                   'NSRequiresAquaSystemAppearance': False,
-                  'LSMinimumSystemVersion': '10.15'  # Catalina or newer
+                  'LSMinimumSystemVersion': '10.15'
               }
           }
 
@@ -87,16 +89,16 @@ jobs:
 
       - name: Build application
         run: |
-          # Clean any previous builds
+          # Clean previous builds
           rm -rf build dist
           
           # Build with py2app
           python setup.py py2app --no-strip
           
-          # Fix Qt plugin paths
+          # Fix Qt paths
           find dist/MoodForager.app/Contents -name "Qt*" -exec install_name_tool -add_rpath @executable_path/../Frameworks {} \;
 
-      - name: Verify bundle structure
+      - name: Verify bundle
         run: |
           ls -la dist/MoodForager.app/Contents/MacOS/
           ls -la dist/MoodForager.app/Contents/Frameworks/
