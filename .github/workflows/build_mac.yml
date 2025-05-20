@@ -18,15 +18,18 @@ jobs:
 
       - name: Clean workspace
         run: |
-          rm -rf build dist
+          echo "Cleaning workspace and Python artifacts..."
+          rm -rf build dist __pycache__ *.egg-info
           find . -name '__pycache__' -exec rm -rf {} +
           find . -name '*.pyc' -delete
+          find . -name '*.pyo' -delete
+          find . -name '*.egg-info' -exec rm -rf {} +
 
       - name: Clean py2app temp directories
         run: |
-          # Remove py2app temp folders to avoid file exists error
+          echo "Cleaning py2app temp folders..."
           rm -rf /tmp/tmp.*
-          rm -rf /tmp/tmp.* /var/folders/w5/_8wgjw3j5cg6mgrth3s2kg9m0000gn/T/tmp.*
+          rm -rf /var/folders/*/*/*/T/tmp.*
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v4
@@ -36,42 +39,43 @@ jobs:
 
       - name: Install Qt
         run: |
+          echo "Installing Qt..."
           brew install qt@5
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
           echo "/opt/homebrew/opt/qt@5/bin" >> $GITHUB_PATH
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip wheel setuptools
-          
-          # Install compatible PyQt5 versions
+          echo "Installing Python packages..."
+          python -m pip install --upgrade pip
+          pip install wheel==0.45.1 setuptools==68.2.2
+
           pip install PyQt5==5.15.11 PyQt5-sip==12.15.0 --prefer-binary
-          
-          # Install core requirements
+
           pip install --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
             --extra-index-url https://download.pytorch.org/whl/nightly/cpu
+
           pip install git+https://github.com/openai/CLIP.git
           pip install tqdm==4.66.1 pillow==10.0.1 py2app==0.28.6
 
-          - name: Build application
-            run: |
-              # Use a unique temp dir for this specific build
-              export BUILD_DIR=$(mktemp -d)
-              echo "Building in: $BUILD_DIR"
-          
-              # Force a clean, non-overlapping py2app build with a unique dist dir
-              python setup.py py2app \
-                --no-strip \
-                --no-chdir \
-                --bdist-base=$BUILD_DIR \
-                --dist-dir=$BUILD_DIR/dist
-          
-              # Fix Qt rpaths
-              find $BUILD_DIR/dist -name "Qt*" -exec install_name_tool -add_rpath @executable_path/../Frameworks {} \;
-          
-              # Move to final output directory
-              mkdir -p dist
-              cp -R $BUILD_DIR/dist/MoodForager.app dist/
+      - name: Build application
+        run: |
+          echo "Starting py2app build..."
+          export BUILD_DIR=$(mktemp -d)
+          echo "Using temporary build directory: $BUILD_DIR"
+
+          python setup.py py2app \
+            --no-strip \
+            --no-chdir \
+            --bdist-base=$BUILD_DIR \
+            --dist-dir=$BUILD_DIR/dist
+
+          echo "Fixing Qt rpaths..."
+          find $BUILD_DIR/dist -name "Qt*" -exec install_name_tool -add_rpath @executable_path/../Frameworks {} \;
+
+          echo "Moving app to final dist directory..."
+          mkdir -p dist
+          cp -R $BUILD_DIR/dist/MoodForager.app dist/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
