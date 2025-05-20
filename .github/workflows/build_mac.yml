@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     runs-on: macos-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -23,26 +23,28 @@ jobs:
 
       - name: Install Qt and dependencies
         run: |
-          # Install Homebrew if not present
+          # Install Homebrew if not already installed
           if ! command -v brew &> /dev/null; then
             /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
             echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.bash_profile
             source ~/.bash_profile
           fi
-          
-          # Install Qt5 with qmake
+
+          # Install Qt5
           brew install qt@5
+
+          # Add Qt binaries to path
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
-          echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
+          echo "$(brew --prefix qt@5)/bin" >> $GITHUB_PATH
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip wheel setuptools
-      
-          # Install PyQt5 from binary wheels only
-          pip install --only-binary=:all: PyQt5==5.15.7 PyQt5-Qt5==5.15.2 PyQt5-sip==12.11.0
-      
-          # Install other dependencies
+
+          # Install PyQt5 using latest prebuilt wheel
+          pip install --only-binary=:all: PyQt5==5.15.11
+
+          # Core dependencies
           pip install --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
             --extra-index-url https://download.pytorch.org/whl/nightly/cpu
           pip install git+https://github.com/openai/CLIP.git
@@ -50,20 +52,20 @@ jobs:
 
       - name: Build application
         run: |
-          # Clean previous builds
+          # Clean up previous build outputs
           rm -rf build dist
-          
-          # Verify qmake is available
+
+          # Check if qmake is correctly linked
           which qmake
           qmake --version
-          
-          # Build with py2app
+
+          # Build app using py2app
           python setup.py py2app --no-strip
-          
-          # Fix Qt paths
+
+          # Fix Qt paths so the app bundles correctly
           find dist/MoodForager.app/Contents -name "Qt*" -exec install_name_tool -add_rpath @executable_path/../Frameworks {} \;
 
-      - name: Upload artifacts
+      - name: Upload built app as artifact
         uses: actions/upload-artifact@v4
         with:
           name: MoodForager-Mac-Bundle
