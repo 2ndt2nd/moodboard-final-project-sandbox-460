@@ -14,7 +14,7 @@ OPTIONS = {
         'CFBundleDisplayName': 'MoodForager',
         'CFBundleVersion': '1.0.0',
         'CFBundleShortVersionString': '1.0.0',
-        'NSHumanReadableCopyright': 'Copyright © 2023 Your Name',
+        'NSHumanReadableCopyright': 'Copyright © 2023 Jacques Davidson Widodo',
     },
     'optimize': 2,
 }
