@@ -22,6 +22,11 @@ jobs:
           find . -name '__pycache__' -exec rm -rf {} +
           find . -name '*.pyc' -delete
 
+      - name: Clean py2app temp directories
+        run: |
+          # Remove py2app temp folders to avoid file exists error
+          rm -rf /tmp/tmp.*
+
       - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
