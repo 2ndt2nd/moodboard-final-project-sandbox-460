@@ -1,5 +1,5 @@
 import sys
-sys.setrecursionlimit(10000)  # Increase recursion limit to avoid RecursionError during build
+sys.setrecursionlimit(20000)  # Increase recursion limit to avoid RecursionError during build
 
 from setuptools import setup
 
