@@ -14,17 +14,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
-          fetch-depth: 0  # Ensures complete repository history
+          fetch-depth: 0
 
-      - name: Clean workspace aggressively
+      - name: Clean workspace
         run: |
-          # Remove all possible conflicting directories
           rm -rf build dist
-          sudo rm -rf /Users/runner/work/moodboard-final-project-sandbox-*/moodboard-final-project-sandbox-*/build
           find . -name '__pycache__' -exec rm -rf {} +
           find . -name '*.pyc' -delete
-          find . -name '*.pyo' -delete
-          find . -name '.DS_Store' -delete
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v4
@@ -32,47 +28,31 @@ jobs:
           python-version: "3.10"
           cache: 'pip'
 
-      - name: Install Qt and dependencies
+      - name: Install Qt
         run: |
-          # Install Homebrew if not present
-          if ! command -v brew &> /dev/null; then
-            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-            echo 'export PATH="/opt/homebrew/bin:$PATH"' >> ~/.zshrc
-            source ~/.zshrc
-          fi
-
-          # Install Qt5 with qmake
           brew install qt@5
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
           echo "/opt/homebrew/opt/qt@5/bin" >> $GITHUB_PATH
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade "pip<24.0" "wheel<0.43" "setuptools<70.0.0"
+          python -m pip install --upgrade pip wheel setuptools
           
-          # Install PyQt5 with explicit components
-          pip install --only-binary=:all: \
-            PyQt5==5.15.11 \
-            PyQt5-Qt5==5.15.2 \
-            PyQt5-sip==12.13.0
+          # Install PyQt5 with compatible versions
+          pip install PyQt5==5.15.11 PyQt5-sip==12.13.0 --prefer-binary
           
-          # Install core requirements with version pinning
-          pip install \
-            --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
+          # Install core requirements
+          pip install --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
             --extra-index-url https://download.pytorch.org/whl/nightly/cpu
           pip install git+https://github.com/openai/CLIP.git
-          pip install \
-            tqdm==4.66.1 \
-            pillow==10.0.1 \
-            py2app==0.28.6
+          pip install tqdm==4.66.1 pillow==10.0.1 py2app==0.28.6
 
-      - name: Build with isolated environment
+      - name: Build application
         run: |
-          # Create unique build directory
+          # Create isolated build directory
           export BUILD_DIR=$(mktemp -d)
           echo "Building in: $BUILD_DIR"
           
-          # Build with explicit temp directories
           python setup.py py2app \
             --no-strip \
             --bdist-base=$BUILD_DIR \
@@ -81,30 +61,13 @@ jobs:
           # Fix Qt paths
           find $BUILD_DIR/dist -name "Qt*" -exec install_name_tool -add_rpath @executable_path/../Frameworks {} \;
           
-          # Copy final app to expected location
+          # Copy to final location
           mkdir -p dist
           cp -R $BUILD_DIR/dist/MoodForager.app dist/
 
-      - name: Verify bundle integrity
-        run: |
-          # Check critical files
-          ls -la dist/MoodForager.app/Contents/MacOS/
-          ls -la dist/MoodForager.app/Contents/Frameworks/
-          
-          # Test executable
-          ./dist/MoodForager.app/Contents/MacOS/MoodForager --version || true
-
-      - name: Create DMG package
-        run: |
-          hdiutil create -volname "MoodForager" \
-                         -srcfolder dist/MoodForager.app \
-                         -ov -format UDZO dist/MoodForager.dmg
-
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MoodForager-Mac-Bundle
-          path: |
-            dist/MoodForager.app
-            dist/MoodForager.dmg
+          name: MoodForager-Mac
+          path: dist/MoodForager.app
           retention-days: 7
