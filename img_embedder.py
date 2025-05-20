@@ -33,8 +33,8 @@ class EmbeddingWorker(QThread):
                 self.progress_updated.emit(0, 0, "No existing embeddings found")
             
             # Get all image files
-            image_files = set(f for f in os.listdir(self.folder_path) 
-                          if f.lower().endswith(("png", "jpg", "jpeg")))
+            image_files = [f for f in os.listdir(self.folder_path) 
+                        if f.lower().endswith(("png", "jpg", "jpeg"))]
             
             if not image_files:
                 self.error_occurred.emit("No image files found in selected folder")
@@ -48,9 +48,10 @@ class EmbeddingWorker(QThread):
                 for f in to_remove:
                     del image_features_dict[f]
                 
-                if to_remove:
+                removed_count = len(to_remove)
+                if removed_count:
                     self.progress_updated.emit(0, 0, 
-                        f"Removed {len(to_remove)} orphaned embeddings ({original_count} → {len(image_features_dict)})")
+                        f"Removed {removed_count} orphaned embeddings ({original_count} → {len(image_features_dict)})")
                 else:
                     self.progress_updated.emit(0, 0, "No orphaned embeddings found")
                 
@@ -68,36 +69,88 @@ class EmbeddingWorker(QThread):
                 self.finished.emit(image_features_dict, self.folder_path)
                 return
 
-            # Process new images
+            # Process images in batches
+            batch_size = 32  # Adjust based on GPU memory
             processed = 0
-            for filename in new_images:
+            is_cuda = isinstance(self.device, torch.device) and self.device.type == 'cuda'
+            
+            # Initial progress update
+            self.progress_updated.emit(0, total_images, "Starting processing...")
+            QApplication.processEvents()  # Force UI update
+            
+            for i in range(0, len(new_images), batch_size):
                 if self.canceled:
                     return
                 
-                try:
-                    image_path = os.path.join(self.folder_path, filename)
-                    image = self.preprocess(Image.open(image_path)).unsqueeze(0).to(self.device)
-                    with torch.no_grad():
-                        features = self.model.encode_image(image)
-                    image_features_dict[filename] = features / features.norm(dim=-1, keepdim=True)
-                    
-                    processed += 1
-                    status = f"Processing {processed}/{total_images}: {filename[:20]}..."
-                    self.progress_updated.emit(processed, total_images, status)
-                except Exception as e:
-                    print(f"Error processing {filename}: {str(e)}")
+                batch_files = new_images[i:i+batch_size]
+                batch_images = []
+                valid_files = []
+                
+                # Load and preprocess batch
+                for filename in batch_files:
+                    try:
+                        image_path = os.path.join(self.folder_path, filename)
+                        image = self.preprocess(Image.open(image_path))
+                        batch_images.append(image)
+                        valid_files.append(filename)
+                    except Exception as e:
+                        print(f"Error loading {filename}: {str(e)}")
+                        continue
+                
+                if not batch_images:
                     continue
+                    
+                # Process batch on GPU
+                try:
+                    batch_tensor = torch.stack(batch_images).to(self.device)
+                    
+                    with torch.no_grad():
+                        if is_cuda:
+                            with torch.autocast(device_type='cuda'):
+                                features = self.model.encode_image(batch_tensor)
+                        else:
+                            features = self.model.encode_image(batch_tensor)
+                        
+                        features = features / features.norm(dim=-1, keepdim=True)
+                    
+                    # Store results
+                    for j, filename in enumerate(valid_files):
+                        image_features_dict[filename] = features[j].unsqueeze(0)
+                    
+                    processed += len(valid_files)
+                    # Update progress after each batch
+                    status = f"Processing {processed}/{total_images} ({filename})"
+                    self.progress_updated.emit(processed, total_images, status)
+                    QApplication.processEvents()  # Ensure UI updates
+                    
+                except RuntimeError as e:
+                    if 'out of memory' in str(e).lower() and is_cuda:
+                        if batch_size > 1:
+                            batch_size = max(batch_size // 2, 1)
+                            print(f"OOM error, reducing batch size to {batch_size}")
+                            continue
+                        else:
+                            self.error_occurred.emit("GPU out of memory even with batch size 1")
+                            return
+                    else:
+                        self.error_occurred.emit(f"Processing error: {str(e)}")
+                        return
+                except Exception as e:
+                    self.error_occurred.emit(f"Unexpected error: {str(e)}")
+                    return
 
             if not self.canceled:
                 # Save updated embeddings
                 torch.save(image_features_dict, embeddings_path)
+                if is_cuda:
+                    torch.cuda.empty_cache()
                 self.finished.emit(image_features_dict, self.folder_path)
                 
         except Exception as e:
-            self.error_occurred.emit(str(e))
+            self.error_occurred.emit(f"Fatal error: {str(e)}")
 
-    def cancel(self):
-        self.canceled = True
+        def cancel(self):
+            self.canceled = True
 
 class MainWindow(QMainWindow):
     def __init__(self):
