@@ -13,29 +13,38 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          lfs: true
+          lfs: true  # Required for CLIP model files
+          fetch-depth: 0  # Ensures full history for version detection
 
-      - name: Set up Python
+      - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
-          cache: 'pip'
+          cache: 'pip'  # Caches pip packages for faster builds
+          cache-dependency-path: 'requirements.txt'
 
       - name: Install system dependencies
         run: |
-          brew install libpng jpeg
-          # Required for PyQt5
-          brew install qt@5
+          brew update
+          brew install qt@5  # Required for PyQt5
+          brew install libpng jpeg  # Required for Pillow
+          echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
+          echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip wheel
-          # Install PyQt5 from pre-built wheels
-          pip install PyQt5==5.15.7 PyQt5-Qt5==5.15.2 PyQt5-sip==12.11.0
-          # Install other dependencies
-          pip install --pre torch==2.1.0 --extra-index-url https://download.pytorch.org/whl/nightly/cpu
+          python -m pip install --upgrade pip wheel setuptools
+          
+          # Install PyQt5 with explicit components
+          pip install PyQt5==5.15.9 PyQt5-Qt5==5.15.2 PyQt5-sip==12.11.0
+          
+          # Install core requirements
+          pip install -r requirements.txt
+          
+          # Install CLIP from source with torch CPU
           pip install git+https://github.com/openai/CLIP.git
-          pip install tqdm==4.66.1 pillow==10.0.1 py2app==0.28.6
+          pip install --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
+            --extra-index-url https://download.pytorch.org/whl/nightly/cpu
 
       - name: Create optimized setup.py
         run: |
@@ -56,17 +65,8 @@ jobs:
           OPTIONS = {
               'argv_emulation': False,
               'packages': ['PyQt5', 'torch', 'clip', 'tqdm', 'PIL'],
-              'includes': [
-                  'numpy',
-                  'PIL.Image',
-                  'PIL.ImageDraw',
-                  'PIL.ImageFont'
-              ],
-              'excludes': [
-                  'tkinter',
-                  'matplotlib',
-                  'scipy'
-              ],
+              'includes': ['numpy', 'PIL.Image', 'PIL.ImageDraw', 'PIL.ImageFont', 'sip'],
+              'excludes': ['tkinter', 'matplotlib', 'scipy'],
               'resources': [],
               'compressed': True,
               'optimize': 2,
@@ -87,25 +87,42 @@ jobs:
           )
           EOF
 
-      - name: Build application
+      - name: Build application bundle
         run: |
           # Clean previous builds
           rm -rf build dist
           
+          # Verify environment
+          which qmake
+          qmake --version
+          python -c "import PyQt5.QtCore; print('PyQt5 version:', PyQt5.QtCore.PYQT_VERSION_STR)"
+          
           # Build with py2app
           python setup.py py2app --no-strip
           
-          # Fix Qt paths
+          # Fix Qt plugin paths
           find dist/MoodForager.app/Contents -name "Qt*" -exec install_name_tool -add_rpath @executable_path/../Frameworks {} \;
 
-      - name: Verify bundle
+      - name: Verify bundle structure
         run: |
+          # Check critical files
           ls -la dist/MoodForager.app/Contents/MacOS/
           ls -la dist/MoodForager.app/Contents/Frameworks/
+          
+          # Test executable
+          ./dist/MoodForager.app/Contents/MacOS/MoodForager --version || true
+
+      - name: Create DMG package
+        run: |
+          hdiutil create -volname "MoodForager" \
+                         -srcfolder dist/MoodForager.app \
+                         -ov -format UDZO dist/MoodForager.dmg
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: MoodForager-Mac-Bundle
-          path: dist/MoodForager.app
+          path: |
+            dist/MoodForager.app
+            dist/MoodForager.dmg
           retention-days: 7
