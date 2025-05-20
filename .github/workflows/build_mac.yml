@@ -8,102 +8,64 @@ on:
 jobs:
   build:
     runs-on: macos-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           lfs: true
 
-      - name: Set up Python
+      - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
           cache: 'pip'
 
-      - name: Install system dependencies
+      - name: Install Qt and dependencies
         run: |
-          brew install libpng jpeg
-          # Required for PyQt5
+          # Install Homebrew if not already installed
+          if ! command -v brew &> /dev/null; then
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.bash_profile
+            source ~/.bash_profile
+          fi
+
+          # Install Qt5
           brew install qt@5
+
+          # Add Qt binaries to path
+          echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
+          echo "$(brew --prefix qt@5)/bin" >> $GITHUB_PATH
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip wheel
-          # Install PyQt5 from pre-built wheels
-          pip install PyQt5==5.15.7 PyQt5-Qt5==5.15.2 PyQt5-sip==12.11.0
-          # Install other dependencies
-          pip install --pre torch==2.1.0 --extra-index-url https://download.pytorch.org/whl/nightly/cpu
+          python -m pip install --upgrade pip wheel setuptools
+
+          # Install PyQt5 using latest prebuilt wheel
+          pip install --only-binary=:all: PyQt5==5.15.11
+
+          # Core dependencies
+          pip install --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
+            --extra-index-url https://download.pytorch.org/whl/nightly/cpu
           pip install git+https://github.com/openai/CLIP.git
           pip install tqdm==4.66.1 pillow==10.0.1 py2app==0.28.6
 
-      - name: Create optimized setup.py
-        run: |
-          cat << 'EOF' > setup.py
-          import sys
-          sys.setrecursionlimit(5000)
-          
-          from setuptools import setup
-
-          # Force include Qt components
-          import PyQt5.QtCore
-          import PyQt5.QtGui
-          import PyQt5.QtWidgets
-          import PyQt5.QtSvg
-
-          APP = ['qt_app.py']
-          DATA_FILES = []
-          OPTIONS = {
-              'argv_emulation': False,
-              'packages': ['PyQt5', 'torch', 'clip', 'tqdm', 'PIL'],
-              'includes': [
-                  'numpy',
-                  'PIL.Image',
-                  'PIL.ImageDraw',
-                  'PIL.ImageFont'
-              ],
-              'excludes': [
-                  'tkinter',
-                  'matplotlib',
-                  'scipy'
-              ],
-              'resources': [],
-              'compressed': True,
-              'optimize': 2,
-              'plist': {
-                  'CFBundleName': 'MoodForager',
-                  'CFBundleShortVersionString': '1.0.0',
-                  'CFBundleIdentifier': 'com.yourdomain.moodforager',
-                  'NSRequiresAquaSystemAppearance': False,
-                  'LSMinimumSystemVersion': '10.15'
-              }
-          }
-
-          setup(
-              app=APP,
-              data_files=DATA_FILES,
-              options={'py2app': OPTIONS},
-              setup_requires=['py2app'],
-          )
-          EOF
-
       - name: Build application
         run: |
-          # Clean previous builds
+          # Clean up previous build outputs
           rm -rf build dist
-          
-          # Build with py2app
+
+          # Check if qmake is correctly linked
+          which qmake
+          qmake --version
+
+          # Build app using py2app
           python setup.py py2app --no-strip
-          
-          # Fix Qt paths
+
+          # Fix Qt paths so the app bundles correctly
           find dist/MoodForager.app/Contents -name "Qt*" -exec install_name_tool -add_rpath @executable_path/../Frameworks {} \;
 
-      - name: Verify bundle
-        run: |
-          ls -la dist/MoodForager.app/Contents/MacOS/
-          ls -la dist/MoodForager.app/Contents/Frameworks/
-
-      - name: Upload artifacts
+      - name: Upload built app as artifact
         uses: actions/upload-artifact@v4
         with:
           name: MoodForager-Mac-Bundle
