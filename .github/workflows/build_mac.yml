@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     runs-on: macos-latest
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -17,65 +17,41 @@ jobs:
 
       - name: Clean workspace
         run: |
-          # Remove any existing build artifacts
           rm -rf build dist
-          # Clean Python build directories
           find . -name '__pycache__' -exec rm -rf {} +
           find . -name '*.pyc' -delete
 
-      - name: Set up Python 3.10
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
-          cache: 'pip'
-          
-      - name: Install Qt and dependencies
+
+      - name: Install system dependencies
         run: |
-          # Install Homebrew if not already installed
-          if ! command -v brew &> /dev/null; then
-            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-            echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.bash_profile
-            source ~/.bash_profile
-          fi
-
-          # Install Qt5
           brew install qt@5
-
-          # Add Qt binaries to path
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
-          echo "$(brew --prefix qt@5)/bin" >> $GITHUB_PATH
 
-      - name: Install Python dependencies
+      - name: Install Python dependencies with PEP 517
         run: |
           python -m pip install --upgrade pip wheel setuptools
+          pip install --use-pep517 py2app==0.28.6
+          pip install --use-pep517 PyQt5==5.15.7 PyQt5-Qt5==5.15.2 PyQt5-sip==12.11.0
+          pip install --use-pep517 torch==2.1.0 --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install --use-pep517 git+https://github.com/openai/CLIP.git
+          pip install --use-pep517 tqdm==4.66.1 pillow==10.0.1
 
-          # Install PyQt5 using latest prebuilt wheel
-          pip install --only-binary=:all: PyQt5==5.15.11
-
-          # Core dependencies
-          pip install --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
-            --extra-index-url https://download.pytorch.org/whl/nightly/cpu
-          pip install git+https://github.com/openai/CLIP.git
-          pip install tqdm==4.66.1 pillow==10.0.1 py2app==0.28.6
-
-      - name: Build application
+      - name: Build with modern py2app
         run: |
-          # Clean up previous build outputs
-          rm -rf build dist
+          # Create isolated build environment
+          export PYTHONPATH=$(python -c "import sys; print(':'.join(sys.path))")
+          python -m py2app.build_app setup.py --no-strip --use-pep517
+          
+          # Fix Qt paths
+          find dist -name "Qt*" -exec install_name_tool -add_rpath @executable_path/../Frameworks {} \;
 
-          # Check if qmake is correctly linked
-          which qmake
-          qmake --version
-
-          # Build app using py2app
-          python setup.py py2app --no-strip
-
-          # Fix Qt paths so the app bundles correctly
-          find dist/MoodForager.app/Contents -name "Qt*" -exec install_name_tool -add_rpath @executable_path/../Frameworks {} \;
-
-      - name: Upload built app as artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MoodForager-Mac-Bundle
+          name: MoodForager-Mac
           path: dist/MoodForager.app
-          retention-days: 7
+          retention-days: 5
