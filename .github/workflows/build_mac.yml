@@ -13,21 +13,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          lfs: true  # Required for CLIP model files
-          fetch-depth: 0  # Ensures full history for version detection
+          lfs: true
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
-          cache: 'pip'  # Caches pip packages for faster builds
-          cache-dependency-path: 'requirements.txt'
+          cache: 'pip'
 
-      - name: Install system dependencies
+      - name: Install Qt and dependencies
         run: |
-          brew update
-          brew install qt@5  # Required for PyQt5
-          brew install libpng jpeg  # Required for Pillow
+          # Install Homebrew if not present
+          if ! command -v brew &> /dev/null; then
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.bash_profile
+            source ~/.bash_profile
+          fi
+          
+          # Install Qt5 with qmake
+          brew install qt@5
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
           echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
 
@@ -35,94 +39,33 @@ jobs:
         run: |
           python -m pip install --upgrade pip wheel setuptools
           
-          # Install PyQt5 with explicit components
-          pip install PyQt5==5.15.9 PyQt5-Qt5==5.15.2 PyQt5-sip==12.11.0
+          # Install PyQt5 using pre-built wheels
+          pip install PyQt5==5.15.7 PyQt5-Qt5==5.15.2 PyQt5-sip==12.11.0 --prefer-binary
           
-          # Install core requirements
-          pip install -r requirements.txt
-          
-          # Install CLIP from source with torch CPU
-          pip install git+https://github.com/openai/CLIP.git
+          # Install other core dependencies
           pip install --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
             --extra-index-url https://download.pytorch.org/whl/nightly/cpu
+          pip install git+https://github.com/openai/CLIP.git
+          pip install tqdm==4.66.1 pillow==10.0.1 py2app==0.28.6
 
-      - name: Create optimized setup.py
-        run: |
-          cat << 'EOF' > setup.py
-          import sys
-          sys.setrecursionlimit(5000)
-          
-          from setuptools import setup
-
-          # Force include Qt components
-          import PyQt5.QtCore
-          import PyQt5.QtGui
-          import PyQt5.QtWidgets
-          import PyQt5.QtSvg
-
-          APP = ['qt_app.py']
-          DATA_FILES = []
-          OPTIONS = {
-              'argv_emulation': False,
-              'packages': ['PyQt5', 'torch', 'clip', 'tqdm', 'PIL'],
-              'includes': ['numpy', 'PIL.Image', 'PIL.ImageDraw', 'PIL.ImageFont', 'sip'],
-              'excludes': ['tkinter', 'matplotlib', 'scipy'],
-              'resources': [],
-              'compressed': True,
-              'optimize': 2,
-              'plist': {
-                  'CFBundleName': 'MoodForager',
-                  'CFBundleShortVersionString': '1.0.0',
-                  'CFBundleIdentifier': 'com.yourdomain.moodforager',
-                  'NSRequiresAquaSystemAppearance': False,
-                  'LSMinimumSystemVersion': '10.15'
-              }
-          }
-
-          setup(
-              app=APP,
-              data_files=DATA_FILES,
-              options={'py2app': OPTIONS},
-              setup_requires=['py2app'],
-          )
-          EOF
-
-      - name: Build application bundle
+      - name: Build application
         run: |
           # Clean previous builds
           rm -rf build dist
           
-          # Verify environment
+          # Verify qmake is available
           which qmake
           qmake --version
-          python -c "import PyQt5.QtCore; print('PyQt5 version:', PyQt5.QtCore.PYQT_VERSION_STR)"
           
           # Build with py2app
           python setup.py py2app --no-strip
           
-          # Fix Qt plugin paths
+          # Fix Qt paths
           find dist/MoodForager.app/Contents -name "Qt*" -exec install_name_tool -add_rpath @executable_path/../Frameworks {} \;
-
-      - name: Verify bundle structure
-        run: |
-          # Check critical files
-          ls -la dist/MoodForager.app/Contents/MacOS/
-          ls -la dist/MoodForager.app/Contents/Frameworks/
-          
-          # Test executable
-          ./dist/MoodForager.app/Contents/MacOS/MoodForager --version || true
-
-      - name: Create DMG package
-        run: |
-          hdiutil create -volname "MoodForager" \
-                         -srcfolder dist/MoodForager.app \
-                         -ov -format UDZO dist/MoodForager.dmg
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: MoodForager-Mac-Bundle
-          path: |
-            dist/MoodForager.app
-            dist/MoodForager.dmg
+          path: dist/MoodForager.app
           retention-days: 7
