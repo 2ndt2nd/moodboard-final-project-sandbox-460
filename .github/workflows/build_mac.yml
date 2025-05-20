@@ -15,16 +15,20 @@ jobs:
         with:
           lfs: true
 
+      - name: Clean workspace
+        run: |
+          # Remove any existing build artifacts
+          rm -rf build dist
+          # Clean Python build directories
+          find . -name '__pycache__' -exec rm -rf {} +
+          find . -name '*.pyc' -delete
+
       - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
           cache: 'pip'
           
-      - name: Clean previous builds
-        run: |
-          rm -rf build dist *.egg-info __pycache__
-
       - name: Install Qt and dependencies
         run: |
           # Install Homebrew if not already installed
