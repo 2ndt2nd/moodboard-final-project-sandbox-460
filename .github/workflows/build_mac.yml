@@ -33,7 +33,7 @@ jobs:
       - name: Build with py2app
         run: |
           # Increase recursion limit temporarily for the build
-          python -c "import sys; sys.setrecursionlimit(5000)"
+          python -c "import sys; sys.setrecursionlimit(20000)"
           python setup.py py2app --no-strip
       - name: Upload artifact
         uses: actions/upload-artifact@v4
