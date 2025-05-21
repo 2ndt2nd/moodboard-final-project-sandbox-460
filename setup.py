@@ -3,8 +3,8 @@ sys.setrecursionlimit(20000)  # Increase recursion limit to avoid RecursionError
 
 from setuptools import setup
 
-APP = ['qt_app.py']
-DATA_FILES = ['image_grid.py']
+APP = ['main_mf.py']
+DATA_FILES = []
 OPTIONS = {
     'argv_emulation': False,
     'packages': ['PyQt5', 'torch', 'clip', 'tqdm'],
