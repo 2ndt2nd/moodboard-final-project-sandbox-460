@@ -1,0 +1,84 @@
+name: Build macOS App (PyInstaller onedir)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Clean workspace
+        run: |
+          rm -rf build dist __pycache__ *.spec
+          find . -name '__pycache__' -exec rm -rf {} +
+          find . -name '*.pyc' -delete
+          find . -name '*.pyo' -delete
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+          cache: 'pip'
+
+      - name: Install Qt
+        run: |
+          brew install qt@5
+          echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
+          echo "/opt/homebrew/opt/qt@5/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyQt5 PyQt5-sip --prefer-binary
+          pip install --pre torch torchvision torchaudio \
+            --extra-index-url https://download.pytorch.org/whl/nightly/cpu
+          pip install git+https://github.com/openai/CLIP.git
+          pip install tqdm pillow pyinstaller
+
+      - name: Build with PyInstaller (onedir)
+        run: |
+          # Generate spec file with proper data collection
+          pyi-makespec --name MoodForager \
+            --add-data="$(python -c 'import clip; print(clip.__path__[0])'):clip" \
+            --add-data="$(python -c 'import torch; print(torch.__path__[0])'):torch" \
+            --add-data="$(python -c 'import PIL; print(PIL.__path__[0])'):PIL" \
+            --hidden-import=clip \
+            --hidden-import=torch \
+            --hidden-import=PIL \
+            --windowed \
+            --onedir \
+            main_mf.py
+
+          # Build the application
+          pyinstaller MoodForager.spec --noconfirm --clean
+
+          # Fix Qt plugins path
+          mkdir -p dist/MoodForager.app/Contents/Resources/qt_plugins
+          cp -R $QT_DIR/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
+
+          # Set Qt plugin environment
+          cat > dist/MoodForager.app/Contents/Resources/qt.conf <<EOF
+          [Paths]
+          Plugins = qt_plugins
+          EOF
+
+      - name: Package artifact
+        run: |
+          cd dist
+          zip -r MoodForager-Mac.zip MoodForager.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoodForager-Mac
+          path: dist/MoodForager-Mac.zip
+          retention-days: 7
