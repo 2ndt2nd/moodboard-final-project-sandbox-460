@@ -24,6 +24,10 @@ MODIFIER_KEY = "Meta" if sys.platform == 'darwin' else "Ctrl"
 # Global dictionary to store sorted results for each prompt
 # prompt_results_cache = {}
 
+if sys.stderr is None:
+    import io
+    sys.stderr = io.StringIO()  # Dummy output to avoid 'NoneType' errors
+
 class ProgressSignal(QObject):
     progress_updated = pyqtSignal(int, int)  # (current, total)
     finished = pyqtSignal(list)
