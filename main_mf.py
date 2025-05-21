@@ -248,7 +248,7 @@ class MainWindow(QMainWindow):
         self.text_features_dict = {}
         self.temp_text=""
         
-        self.history_file = os.path.expanduser("~/.moodforager_history.json")
+        self.history_file = os.path.expanduser(os.path.join("~", ".moodforager_history.json"))
         self.folder_dropdown = QComboBox()
         self.folder_dropdown.currentIndexChanged.connect(self.load_folder_from_history)
 
@@ -387,7 +387,7 @@ class MainWindow(QMainWindow):
         self.input_box.setText(self.temp_text)
         self.input_box.setStyleSheet("background-color: white; font-size: 18px; min-height: 40px; padding: 5px;")
         for url in event.mimeData().urls():
-            file_path = url.toLocalFile()
+            file_path = os.path.normpath(url.toLocalFile())
             if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
                 process_dropped_image(self,file_path)
         event.acceptProposedAction()
@@ -691,7 +691,7 @@ class ImageGridWindow(QWidget):
         self.input_box.setText(self.temp_text)
         self.input_box.setStyleSheet("background-color: white; font-size: 18px; min-height: 40px; padding: 5px;")
         for url in event.mimeData().urls():
-            file_path = url.toLocalFile()
+            file_path = os.path.normpath(url.toLocalFile())
             if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
                 self.input_box.setText(self.temp_text)
                 show_similar_images(self, file_path)
@@ -821,6 +821,7 @@ class ImageGridWindow(QWidget):
             QMessageBox.warning(self, "No Selection", "Please select images to copy.")
             return
 
+        copied_dir = os.path.join(os.getcwd(), "copied_images")
         os.makedirs('copied_images', exist_ok=True)
         copied = 0
         
@@ -828,7 +829,7 @@ class ImageGridWindow(QWidget):
             try:
                 src_path = os.path.join(self.image_folder, img_name)
                 if os.path.exists(src_path):
-                    dest_path = os.path.join('copied_images', img_name)
+                    dest_path = os.path.join(copied_dir, img_name)
                     shutil.copy(src_path, dest_path)
                     copied += 1
             except Exception as e:
@@ -1198,7 +1199,8 @@ class MoodboardCanvasWindow(QMainWindow):
         self.deselect_all_items()
 
         generator = QSvgGenerator()
-        generator.setFileName("moodboard.svg")
+        svg_path = os.path.join(os.getcwd(), "moodboard.svg")
+        generator.setFileName(svg_path)
         generator.setSize(self.scene.sceneRect().size().toSize())
         generator.setViewBox(self.scene.sceneRect())
 
