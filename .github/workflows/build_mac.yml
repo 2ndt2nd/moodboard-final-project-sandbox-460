@@ -1,4 +1,4 @@
-name: Build macOS App
+name: Build Universal macOS App (PyInstaller)
 
 on:
   push:
@@ -18,68 +18,103 @@ jobs:
 
       - name: Clean workspace
         run: |
-          echo "Cleaning workspace and Python artifacts..."
-          rm -rf build dist __pycache__ *.egg-info
+          rm -rf build dist __pycache__ *.spec
           find . -name '__pycache__' -exec rm -rf {} +
           find . -name '*.pyc' -delete
           find . -name '*.pyo' -delete
-          find . -name '*.egg-info' -exec rm -rf {} +
 
-      - name: Clean py2app temp directories
-        run: |
-          echo "Cleaning py2app temp folders..."
-          rm -rf /tmp/tmp.*
-          rm -rf /var/folders/*/*/*/T/tmp.*
-
-      - name: Set up Python 3.10
+      - name: Set up Python 3.10 (Universal)
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
           cache: 'pip'
+          architecture: 'x64'  # GitHub's Python is already universal
 
-      - name: Install Qt
+      - name: Install Universal Qt
         run: |
-          echo "Installing Qt..."
           brew install qt@5
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
           echo "/opt/homebrew/opt/qt@5/bin" >> $GITHUB_PATH
+          # Verify Qt is universal
+          file $(brew --prefix qt@5)/lib/*.dylib | grep -q 'universal binary' || echo "Warning: Qt not universal"
 
-      - name: Install Python dependencies
+      - name: Install dependencies (Universal)
         run: |
-          echo "Installing Python packages..."
           python -m pip install --upgrade pip
-          pip install wheel==0.45.1 setuptools==68.2.2
+          # Force universal wheels
+          pip install PyQt5 PyQt5-sip --prefer-binary --no-cache-dir
+          pip install --pre torch torchvision torchaudio \
+            --extra-index-url https://download.pytorch.org/whl/nightly/cpu \
+            --no-cache-dir
+          pip install git+https://github.com/openai/CLIP.git \
+            --no-cache-dir
+          pip install tqdm pillow pyinstaller \
+            --no-cache-dir
 
-          pip install PyQt5==5.15.11 PyQt5-sip==12.15.0 --prefer-binary
-
-          pip install --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
-            --extra-index-url https://download.pytorch.org/whl/nightly/cpu
-
-          pip install git+https://github.com/openai/CLIP.git
-          pip install tqdm==4.66.1 pillow==10.0.1 py2app==0.28.6
-
-      - name: Build application
+      - name: Build Universal Binary
         run: |
-          echo "Starting py2app build..."
-          export BUILD_DIR=$(mktemp -d)
-          echo "Using temporary build directory: $BUILD_DIR"
+          # Generate spec with universal2 support
+          pyi-makespec --name MoodForager \
+            --target-arch universal2 \
+            --add-data="$(python -c 'import clip; print(clip.__path__[0])'):clip" \
+            --add-data="$(python -c 'import torch; print(torch.__path__[0])'):torch" \
+            --add-data="$(python -c 'import PIL; print(PIL.__path__[0])'):PIL" \
+            --hidden-import=clip \
+            --hidden-import=torch \
+            --hidden-import=PIL \
+            --windowed \
+            --onedir \
+            main_mf.py
 
-          python setup.py py2app \
-            --no-strip \
-            --no-chdir \
-            --bdist-base=$BUILD_DIR \
-            --dist-dir=$BUILD_DIR/dist
+          # Build with explicit universal2 flag
+          pyinstaller MoodForager.spec \
+            --noconfirm \
+            --clean \
+            --target-arch universal2
 
-          echo "Fixing Qt rpaths..."
-          find $BUILD_DIR/dist -name "Qt*" -exec install_name_tool -add_rpath @executable_path/../Frameworks {} \;
+          # Verify binary architecture
+          echo "Checking binary compatibility:"
+          lipo -archs "dist/MoodForager.app/Contents/MacOS/MoodForager"
+          if ! lipo -archs "dist/MoodForager.app/Contents/MacOS/MoodForager" | grep -q "x86_64"; then
+            echo "ERROR: Missing Intel (x86_64) support"
+            exit 1
+          fi
+          if ! lipo -archs "dist/MoodForager.app/Contents/MacOS/MoodForager" | grep -q "arm64"; then
+            echo "ERROR: Missing Apple Silicon (arm64) support"
+            exit 1
+          fi
 
-          echo "Moving app to final dist directory..."
-          mkdir -p dist
-          cp -R $BUILD_DIR/dist/MoodForager.app dist/
+          # Fix Qt plugins for universal build
+          mkdir -p dist/MoodForager.app/Contents/Resources/qt_plugins
+          cp -R $QT_DIR/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
+          
+          # Create qt.conf with relative paths
+          cat > dist/MoodForager.app/Contents/Resources/qt.conf <<EOF
+          [Paths]
+          Plugins = qt_plugins
+          Prefix = $QT_DIR
+          EOF
 
-      - name: Upload artifact
+      - name: Verify Bundle Structure
+        run: |
+          # Check minimum OS version
+          plutil -extract LSMinimumSystemVersion xml1 dist/MoodForager.app/Contents/Info.plist -o -
+          
+          # Verify all binaries are universal
+          find dist/MoodForager.app -type f -exec file {} + | grep -v "universal binary with 2 architectures" | grep -v "Mach-O universal binary" && exit 1 || true
+
+      - name: Package Universal Artifact
+        run: |
+          cd dist
+          # Create ZIP with proper macOS metadata
+          ditto -c -k --keepParent MoodForager.app MoodForager-Mac-Universal.zip
+          
+          # Verify ZIP contents
+          unzip -l MoodForager-Mac-Universal.zip | grep "MoodForager.app/Contents/MacOS/MoodForager"
+
+      - name: Upload Universal Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MoodForager-Mac
-          path: dist/MoodForager.app
+          name: MoodForager-Mac-Universal
+          path: dist/MoodForager-Mac-Universal.zip
           retention-days: 7

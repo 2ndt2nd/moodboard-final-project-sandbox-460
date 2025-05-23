@@ -749,7 +749,7 @@ class ImageGridWindow(QWidget):
     def shuffle_images(self):
         available_images = len(self.match_results)
         top_k = min(16, available_images)
-        top_n = min(80, available_images)
+        top_n = min(100, available_images)
         
         random_subset = random.sample(self.match_results[:top_n], top_k)
         image_files = [img for img, _ in random_subset]
