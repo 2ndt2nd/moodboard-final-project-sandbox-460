@@ -250,7 +250,6 @@ class MainWindow(QMainWindow):
         
         self.history_file = os.path.expanduser(os.path.join("~", ".moodforager_history.json"))
         self.folder_dropdown = QComboBox()
-        self.folder_dropdown.currentIndexChanged.connect(self.load_folder_from_history)
 
         # Load saved folders into dropdown
         self.recent_folders = self.load_folder_history()
@@ -272,6 +271,8 @@ class MainWindow(QMainWindow):
 
         # Add home tab
         self.add_home_tab()
+        self.folder_dropdown.currentIndexChanged.connect(self.load_folder_from_history)
+
 
         # Initialize moodboard window (will be shown in its own window)
         self.moodboard_window = None
