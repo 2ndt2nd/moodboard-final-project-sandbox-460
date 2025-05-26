@@ -23,17 +23,25 @@ jobs:
           find . -name '*.pyc' -delete
           find . -name '*.pyo' -delete
 
+      - name: Fix Python 3.10 gettext dependency
+        run: |
+          # Install gettext and create required symlinks
+          brew install gettext
+          sudo mkdir -p /usr/local/opt/gettext/lib
+          sudo ln -sf $(brew --prefix gettext)/lib/libintl.8.dylib /usr/local/opt/gettext/lib/
+          export PATH="$(brew --prefix gettext)/bin:$PATH"
+
       - name: Setup universal Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"  # Middle-ground Python version
           architecture: "x64"  # Start with Intel-compatible base
+          cache: 'pip'
 
       - name: Install universal dependencies
         run: |
           # Install Homebrew packages (both architectures)
           brew install gettext qt@5
-          brew link --force gettext
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
           echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
 
