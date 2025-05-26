@@ -1,4 +1,4 @@
-name: Build macOS App (PyInstaller onedir)
+name: Universal macOS Build (Intel + Apple Silicon)
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-latest  # Uses latest available runner (Ventura/Sonoma)
 
     steps:
       - name: Checkout code
@@ -23,40 +23,49 @@ jobs:
           find . -name '*.pyc' -delete
           find . -name '*.pyo' -delete
 
-      - name: Install gettext (required for Python 3.10 dylib)
-        run: |
-          brew install gettext
-
-      - name: Force-link gettext for Python dylib compatibility
-        run: |
-          brew link gettext --force
-          export LIBINTL_PATH=$(brew --prefix gettext)/lib
-          sudo mkdir -p /usr/local/opt/gettext/lib
-          sudo ln -sf "$LIBINTL_PATH/libintl.8.dylib" /usr/local/opt/gettext/lib/libintl.8.dylib
-
-      - name: Set up Python 3.10
+      - name: Setup universal Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
-          cache: 'pip'
+          python-version: "3.10"  # Middle-ground Python version
+          architecture: "x64"  # Start with Intel-compatible base
 
-      - name: Install Qt
+      - name: Install universal dependencies
         run: |
-          brew install qt@5
+          # Install Homebrew packages (both architectures)
+          brew install gettext qt@5
+          brew link --force gettext
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
-          echo "$(brew --prefix qt@5)/bin" >> $GITHUB_PATH
+          echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
 
-      - name: Install dependencies
-        run: |
+          # Install Python packages with universal flags
           python -m pip install --upgrade pip
-          pip install PyQt5 PyQt5-sip --prefer-binary
-          pip install --pre torch torchvision torchaudio \
-            --extra-index-url https://download.pytorch.org/whl/nightly/cpu
-          pip install git+https://github.com/openai/CLIP.git
-          pip install tqdm pillow pyinstaller
+          pip install \
+            PyQt5==5.15.9 \
+            PyQt5-sip==12.12.1 \
+            --platform macosx_10_15_universal2 \
+            --only-binary=:all:
 
-      - name: Build with PyInstaller (onedir)
+          pip install \
+            torch==2.0.1 \
+            torchvision==0.15.2 \
+            torchaudio==2.0.2 \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
+            --platform macosx_11_0_universal2
+
+          pip install \
+            git+https://github.com/openai/CLIP.git \
+            tqdm==4.65.0 \
+            pillow==9.5.0 \
+            pyinstaller==5.13.0
+
+      - name: Build universal app
         run: |
+          # Set universal build flags
+          export MACOSX_DEPLOYMENT_TARGET=10.15  # Catalina baseline
+          export ARCHFLAGS="-arch x86_64 -arch arm64"
+          export PYTHONARCHS="x86_64 arm64"
+
+          # Generate spec file
           pyi-makespec --name MoodForager \
             --add-data="$(python -c 'import clip; print(clip.__path__[0])'):clip" \
             --add-data="$(python -c 'import torch; print(torch.__path__[0])'):torch" \
@@ -68,8 +77,10 @@ jobs:
             --onedir \
             main_mf.py
 
+          # Build with universal support
           pyinstaller MoodForager.spec --noconfirm --clean
 
+          # Handle Qt plugins for both architectures
           mkdir -p dist/MoodForager.app/Contents/Resources/qt_plugins
           cp -R $QT_DIR/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
 
@@ -78,14 +89,22 @@ jobs:
           Plugins = qt_plugins
           EOF
 
-      - name: Package artifact
+      - name: Verify universal binary
+        run: |
+          # Check for both architectures
+          lipo -archs dist/MoodForager.app/Contents/MacOS/MoodForager | grep "x86_64 arm64" || exit 1
+          
+          # Check minimum OS version
+          otool -l dist/MoodForager.app/Contents/MacOS/MoodForager | grep -A3 LC_VERSION_MIN_MACOSX
+
+      - name: Package and upload
         run: |
           cd dist
-          zip -r MoodForager-Mac.zip MoodForager.app
-
+          ditto -c -k --keepParent MoodForager.app MoodForager-Mac-Universal.zip
+          
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MoodForager-Mac
-          path: dist/MoodForager-Mac.zip
+          name: MoodForager-Mac-Universal
+          path: dist/MoodForager-Mac-Universal.zip
           retention-days: 7
