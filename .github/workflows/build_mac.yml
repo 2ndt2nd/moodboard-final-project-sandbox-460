@@ -1,4 +1,4 @@
-name: Build Universal macOS App (PyInstaller)
+name: Build macOS App (PyInstaller) - Intel Compatible
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-12 
+    runs-on: macos-latest  # Use current runner but force Intel compatibility
 
     steps:
       - name: Checkout code
@@ -23,39 +23,51 @@ jobs:
           find . -name '*.pyc' -delete
           find . -name '*.pyo' -delete
 
-      - name: Set up Python 3.10 (Universal)
+      - name: Set up Python 3.10 (Intel compatible)
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
-          cache: 'pip'
-          architecture: 'x64'  # GitHub's Python is already universal
+          python-version: "3.10.11"  # Specific version known to work
+          architecture: "x64"  # Force x86_64 architecture
 
-      - name: Install Universal Qt
+      - name: Install required system dependencies
+        run: |
+          brew install gettext
+          brew link --force gettext
+
+      - name: Install Qt (Intel compatible)
         run: |
           brew install qt@5
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
-          echo "/opt/homebrew/opt/qt@5/bin" >> $GITHUB_PATH
-          # Verify Qt is universal
-          file $(brew --prefix qt@5)/lib/*.dylib | grep -q 'universal binary' || echo "Warning: Qt not universal"
+          if [[ $(uname -m) == 'arm64' ]]; then
+            # On Apple Silicon, use Rosetta for Intel compatibility
+            echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
+          else
+            # On Intel, use normal path
+            echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
+          fi
 
-      - name: Install dependencies (Universal)
+      - name: Install dependencies (Intel compatible)
         run: |
+          # Force Intel-compatible wheels
+          export PIP_ONLY_BINARY=:all:
+          export PIP_IGNORE_INSTALLED=0
+          
           python -m pip install --upgrade pip
-          # Force universal wheels
-          pip install PyQt5 PyQt5-sip --prefer-binary --no-cache-dir
-          pip install --pre torch torchvision torchaudio \
+          pip install PyQt5==5.15.10 PyQt5-sip==12.13.0 --platform macosx_10_9_x86_64 --only-binary=:all:
+          pip install --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
             --extra-index-url https://download.pytorch.org/whl/nightly/cpu \
-            --no-cache-dir
-          pip install git+https://github.com/openai/CLIP.git \
-            --no-cache-dir
-          pip install tqdm pillow pyinstaller \
-            --no-cache-dir
+            --platform macosx_10_9_x86_64
+          pip install git+https://github.com/openai/CLIP.git
+          pip install tqdm==4.66.1 pillow==10.1.0 pyinstaller==6.2.0
 
-      - name: Build Universal Binary
+      - name: Build with PyInstaller (Intel compatible)
         run: |
-          # Generate spec with universal2 support
+          # Force x86_64 architecture
+          export ARCHFLAGS="-arch x86_64"
+          export PYTHONARCHS="x86_64"
+          
+          # Generate spec file
           pyi-makespec --name MoodForager \
-            --target-arch universal2 \
             --add-data="$(python -c 'import clip; print(clip.__path__[0])'):clip" \
             --add-data="$(python -c 'import torch; print(torch.__path__[0])'):torch" \
             --add-data="$(python -c 'import PIL; print(PIL.__path__[0])'):PIL" \
@@ -65,56 +77,36 @@ jobs:
             --windowed \
             --onedir \
             main_mf.py
-
-          # Build with explicit universal2 flag
-          pyinstaller MoodForager.spec \
-            --noconfirm \
-            --clean \
-            --target-arch universal2
-
-          # Verify binary architecture
-          echo "Checking binary compatibility:"
-          lipo -archs "dist/MoodForager.app/Contents/MacOS/MoodForager"
-          if ! lipo -archs "dist/MoodForager.app/Contents/MacOS/MoodForager" | grep -q "x86_64"; then
-            echo "ERROR: Missing Intel (x86_64) support"
-            exit 1
-          fi
-          if ! lipo -archs "dist/MoodForager.app/Contents/MacOS/MoodForager" | grep -q "arm64"; then
-            echo "ERROR: Missing Apple Silicon (arm64) support"
-            exit 1
-          fi
-
-          # Fix Qt plugins for universal build
+          
+          # Build with explicit arch flags
+          pyinstaller MoodForager.spec --noconfirm --clean
+          
+          # Handle Qt plugins
           mkdir -p dist/MoodForager.app/Contents/Resources/qt_plugins
           cp -R $QT_DIR/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
           
-          # Create qt.conf with relative paths
           cat > dist/MoodForager.app/Contents/Resources/qt.conf <<EOF
           [Paths]
           Plugins = qt_plugins
-          Prefix = $QT_DIR
           EOF
 
-      - name: Verify Bundle Structure
+      - name: Verify Intel compatibility
         run: |
-          # Check minimum OS version
-          plutil -extract LSMinimumSystemVersion xml1 dist/MoodForager.app/Contents/Info.plist -o -
-          
-          # Verify all binaries are universal
-          find dist/MoodForager.app -type f -exec file {} + | grep -v "universal binary with 2 architectures" | grep -v "Mach-O universal binary" && exit 1 || true
+          # Check binary architecture
+          file dist/MoodForager.app/Contents/MacOS/MoodForager | grep "x86_64"
+          if [ $? -ne 0 ]; then
+            echo "Error: Binary not built for Intel architecture"
+            exit 1
+          fi
 
-      - name: Package Universal Artifact
+      - name: Package artifact
         run: |
           cd dist
-          # Create ZIP with proper macOS metadata
-          ditto -c -k --keepParent MoodForager.app MoodForager-Mac-Universal.zip
-          
-          # Verify ZIP contents
-          unzip -l MoodForager-Mac-Universal.zip | grep "MoodForager.app/Contents/MacOS/MoodForager"
+          zip -r MoodForager-Mac-Intel.zip MoodForager.app
 
-      - name: Upload Universal Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MoodForager-Mac-Universal
-          path: dist/MoodForager-Mac-Universal.zip
+          name: MoodForager-Mac-Intel
+          path: dist/MoodForager-Mac-Intel.zip
           retention-days: 7
