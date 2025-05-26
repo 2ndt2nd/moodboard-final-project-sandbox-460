@@ -102,3 +102,4 @@ jobs:
           name: MoodForager-Mac-Intel
           path: dist/MoodForager-Mac-Intel.zip
           retention-days: 7
+          
