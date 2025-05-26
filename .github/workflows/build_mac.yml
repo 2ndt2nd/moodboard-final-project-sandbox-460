@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest  # Uses latest available runner (Ventura/Sonoma)
+    runs-on: macos-latest
 
     steps:
       - name: Checkout code
@@ -23,29 +23,33 @@ jobs:
           find . -name '*.pyc' -delete
           find . -name '*.pyo' -delete
 
-      - name: Fix Python 3.10 gettext dependency
+      - name: Install Intel-compatible gettext
         run: |
-          # Install gettext and create required symlinks
-          brew install gettext
+          # Uninstall any existing arm64 gettext
+          brew uninstall --ignore-dependencies gettext || true
+          
+          # Install x86_64 version explicitly
+          arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          echo "/usr/local/bin" >> $GITHUB_PATH
+          arch -x86_64 /usr/local/bin/brew install gettext
           sudo mkdir -p /usr/local/opt/gettext/lib
-          sudo ln -sf $(brew --prefix gettext)/lib/libintl.8.dylib /usr/local/opt/gettext/lib/
-          export PATH="$(brew --prefix gettext)/bin:$PATH"
+          sudo ln -sf /usr/local/Cellar/gettext/*/lib/libintl.8.dylib /usr/local/opt/gettext/lib/
 
-      - name: Setup universal Python
+      - name: Setup Python (x86_64)
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"  # Middle-ground Python version
-          architecture: "x64"  # Start with Intel-compatible base
+          python-version: "3.10"
+          architecture: "x64"
           cache: 'pip'
 
       - name: Install universal dependencies
         run: |
-          # Install Homebrew packages (both architectures)
-          brew install gettext qt@5
-          echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
+          # Install Qt with x86_64 compatibility
+          arch -x86_64 /usr/local/bin/brew install qt@5
+          echo "QT_DIR=/usr/local/opt/qt@5" >> $GITHUB_ENV
           echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
 
-          # Install Python packages with universal flags
+          # Install Python packages
           python -m pip install --upgrade pip
           pip install \
             PyQt5==5.15.9 \
@@ -69,7 +73,7 @@ jobs:
       - name: Build universal app
         run: |
           # Set universal build flags
-          export MACOSX_DEPLOYMENT_TARGET=10.15  # Catalina baseline
+          export MACOSX_DEPLOYMENT_TARGET=10.15
           export ARCHFLAGS="-arch x86_64 -arch arm64"
           export PYTHONARCHS="x86_64 arm64"
 
@@ -88,7 +92,7 @@ jobs:
           # Build with universal support
           pyinstaller MoodForager.spec --noconfirm --clean
 
-          # Handle Qt plugins for both architectures
+          # Handle Qt plugins
           mkdir -p dist/MoodForager.app/Contents/Resources/qt_plugins
           cp -R $QT_DIR/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
 
@@ -99,10 +103,7 @@ jobs:
 
       - name: Verify universal binary
         run: |
-          # Check for both architectures
           lipo -archs dist/MoodForager.app/Contents/MacOS/MoodForager | grep "x86_64 arm64" || exit 1
-          
-          # Check minimum OS version
           otool -l dist/MoodForager.app/Contents/MacOS/MoodForager | grep -A3 LC_VERSION_MIN_MACOSX
 
       - name: Package and upload
