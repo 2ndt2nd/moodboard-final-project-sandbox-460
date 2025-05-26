@@ -1,4 +1,4 @@
-name: Build macOS App (Universal or Intel)
+name: Build macOS App (PyInstaller onedir)
 
 on:
   push:
@@ -23,32 +23,30 @@ jobs:
           find . -name '*.pyc' -delete
           find . -name '*.pyo' -delete
 
-      - name: Set up Python 3.10 (Intel)
+      - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
-          architecture: "x64"  # Force Intel architecture (Universal includes this)
+          cache: 'pip'
 
-      - name: Install Qt (Intel-compatible)
+      - name: Install Qt
         run: |
           brew install qt@5
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
-          echo "$(brew --prefix qt@5)/bin" >> $GITHUB_PATH
-          # Check Qt binaries
-          file $(brew --prefix qt@5)/lib/*.dylib || true
+          echo "/opt/homebrew/opt/qt@5/bin" >> $GITHUB_PATH
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install --prefer-binary --no-cache-dir PyQt5 PyQt5-sip
-          pip install --pre --no-cache-dir \
-            torch torchvision torchaudio \
+          pip install PyQt5 PyQt5-sip --prefer-binary
+          pip install --pre torch torchvision torchaudio \
             --extra-index-url https://download.pytorch.org/whl/nightly/cpu
-          pip install --no-cache-dir git+https://github.com/openai/CLIP.git
+          pip install git+https://github.com/openai/CLIP.git
           pip install tqdm pillow pyinstaller
 
-      - name: Generate PyInstaller spec
+      - name: Build with PyInstaller (onedir)
         run: |
+          # Generate spec file with proper data collection
           pyi-makespec --name MoodForager \
             --add-data="$(python -c 'import clip; print(clip.__path__[0])'):clip" \
             --add-data="$(python -c 'import torch; print(torch.__path__[0])'):torch" \
@@ -60,36 +58,25 @@ jobs:
             --onedir \
             main_mf.py
 
-      - name: Build app with PyInstaller (Universal or Intel)
-        run: |
+          # Build the application
           pyinstaller MoodForager.spec --noconfirm --clean
 
-          echo "Checking binary architecture:"
-          file dist/MoodForager.app/Contents/MacOS/MoodForager
-
-      - name: Fix Qt plugins
-        run: |
+          # Fix Qt plugins path
           mkdir -p dist/MoodForager.app/Contents/Resources/qt_plugins
-          cp -R "$QT_DIR/plugins/"* dist/MoodForager.app/Contents/Resources/qt_plugins/
+          cp -R $QT_DIR/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
 
+          # Set Qt plugin environment
           cat > dist/MoodForager.app/Contents/Resources/qt.conf <<EOF
           [Paths]
           Plugins = qt_plugins
-          Prefix = $QT_DIR
           EOF
 
-      - name: Verify bundle
-        run: |
-          plutil -extract LSMinimumSystemVersion xml1 dist/MoodForager.app/Contents/Info.plist -o -
-          find dist/MoodForager.app -type f -exec file {} + | grep -v "Mach-O universal binary" || true
-
-      - name: Package .app into ZIP
+      - name: Package artifact
         run: |
           cd dist
-          ditto -c -k --keepParent MoodForager.app MoodForager-Mac.zip
-          unzip -l MoodForager-Mac.zip | grep "MoodForager.app/Contents/MacOS/MoodForager"
+          zip -r MoodForager-Mac.zip MoodForager.app
 
-      - name: Upload ZIP artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: MoodForager-Mac
