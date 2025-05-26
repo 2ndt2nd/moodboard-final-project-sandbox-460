@@ -28,12 +28,13 @@ jobs:
         with:
           python-version: "3.10"
           cache: 'pip'
+          architecture: "x64"
 
       - name: Install Qt
         run: |
           brew install qt@5
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
-          echo "/opt/homebrew/opt/qt@5/bin" >> $GITHUB_PATH
+          echo "$(brew --prefix qt@5)/bin" >> $GITHUB_PATH
 
       - name: Install dependencies
         run: |
