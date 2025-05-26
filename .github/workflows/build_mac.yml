@@ -1,4 +1,4 @@
-name: Build macOS Universal App (PyInstaller onedir)
+name: Build macOS App (PyInstaller onedir)
 
 on:
   push:
@@ -23,14 +23,22 @@ jobs:
           find . -name '*.pyc' -delete
           find . -name '*.pyo' -delete
 
-      - name: Install missing gettext (for Intel Python)
-        run: brew install gettext
+      - name: Install gettext (required for Python 3.10 dylib)
+        run: |
+          brew install gettext
 
-      - name: Set up Python 3.10 (Universal)
+      - name: Force-link gettext for Python dylib compatibility
+        run: |
+          brew link gettext --force
+          export LIBINTL_PATH=$(brew --prefix gettext)/lib
+          sudo mkdir -p /usr/local/opt/gettext/lib
+          sudo ln -sf "$LIBINTL_PATH/libintl.8.dylib" /usr/local/opt/gettext/lib/libintl.8.dylib
+
+      - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
-          architecture: "x64"  # Needed to ensure compatibility with Intel
+          cache: 'pip'
 
       - name: Install Qt
         run: |
@@ -41,18 +49,15 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install PyQt5 PyQt5-sip --prefer-binary --no-cache-dir
+          pip install PyQt5 PyQt5-sip --prefer-binary
           pip install --pre torch torchvision torchaudio \
-            --extra-index-url https://download.pytorch.org/whl/nightly/cpu \
-            --no-cache-dir
-          pip install git+https://github.com/openai/CLIP.git --no-cache-dir
-          pip install tqdm pillow pyinstaller --no-cache-dir
+            --extra-index-url https://download.pytorch.org/whl/nightly/cpu
+          pip install git+https://github.com/openai/CLIP.git
+          pip install tqdm pillow pyinstaller
 
-      - name: Build with PyInstaller (Universal onedir)
+      - name: Build with PyInstaller (onedir)
         run: |
-          # Generate spec with universal2 target
           pyi-makespec --name MoodForager \
-            --target-arch universal2 \
             --add-data="$(python -c 'import clip; print(clip.__path__[0])'):clip" \
             --add-data="$(python -c 'import torch; print(torch.__path__[0])'):torch" \
             --add-data="$(python -c 'import PIL; print(PIL.__path__[0])'):PIL" \
@@ -63,38 +68,24 @@ jobs:
             --onedir \
             main_mf.py
 
-          # Build the app
-          pyinstaller MoodForager.spec --noconfirm --clean --target-arch universal2
+          pyinstaller MoodForager.spec --noconfirm --clean
 
-          # Fix Qt plugins path
           mkdir -p dist/MoodForager.app/Contents/Resources/qt_plugins
-          cp -R "$QT_DIR/plugins/"* dist/MoodForager.app/Contents/Resources/qt_plugins/
+          cp -R $QT_DIR/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
 
-          # Add qt.conf
           cat > dist/MoodForager.app/Contents/Resources/qt.conf <<EOF
           [Paths]
           Plugins = qt_plugins
           EOF
 
-          # Check binary arch
-          echo "Binary architectures:"
-          lipo -archs dist/MoodForager.app/Contents/MacOS/MoodForager
-
-          # Fail if not universal
-          ARCHS=$(lipo -archs dist/MoodForager.app/Contents/MacOS/MoodForager)
-          [[ "$ARCHS" == *"x86_64"* && "$ARCHS" == *"arm64"* ]] || {
-            echo "❌ App is not a universal binary (x86_64 + arm64)"
-            exit 1
-          }
-
       - name: Package artifact
         run: |
           cd dist
-          ditto -c -k --keepParent MoodForager.app MoodForager-Mac-Universal.zip
+          zip -r MoodForager-Mac.zip MoodForager.app
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MoodForager-Mac-Universal
-          path: dist/MoodForager-Mac-Universal.zip
+          name: MoodForager-Mac
+          path: dist/MoodForager-Mac.zip
           retention-days: 7
