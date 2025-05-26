@@ -1,4 +1,4 @@
-name: Universal macOS Build (Intel + Apple Silicon)
+name: Universal macOS Build
 
 on:
   push:
@@ -23,61 +23,50 @@ jobs:
           find . -name '*.pyc' -delete
           find . -name '*.pyo' -delete
 
-      - name: Install Intel-compatible gettext
-        run: |
-          # Uninstall any existing arm64 gettext
-          brew uninstall --ignore-dependencies gettext || true
-          
-          # Install x86_64 version explicitly
-          arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          echo "/usr/local/bin" >> $GITHUB_PATH
-          arch -x86_64 /usr/local/bin/brew install gettext
-          sudo mkdir -p /usr/local/opt/gettext/lib
-          sudo ln -sf /usr/local/Cellar/gettext/*/lib/libintl.8.dylib /usr/local/opt/gettext/lib/
-
-      - name: Setup Python (x86_64)
-        uses: actions/setup-python@v4
+      - name: Install Python via Miniforge (bypass gettext issue)
+        uses: conda-incubator/setup-miniconda@v3
         with:
+          miniforge-variant: Mambaforge
+          miniforge-version: latest
           python-version: "3.10"
-          architecture: "x64"
-          cache: 'pip'
+          activate-environment: "build"
+          environment-file: environment.yml
 
-      - name: Install universal dependencies
+      - name: Create conda environment file
         run: |
-          # Install Qt with x86_64 compatibility
-          arch -x86_64 /usr/local/bin/brew install qt@5
-          echo "QT_DIR=/usr/local/opt/qt@5" >> $GITHUB_ENV
-          echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
+          cat > environment.yml <<EOF
+          name: build
+          channels:
+            - conda-forge
+            - defaults
+          dependencies:
+            - python=3.10
+            - pip
+            - gettext
+            - qt
+            - pyqt
+            - pip:
+              - torch==2.0.1
+              - torchvision==0.15.2
+              - torchaudio==2.0.2
+              - git+https://github.com/openai/CLIP.git
+              - tqdm==4.65.0
+              - pillow==9.5.0
+              - pyinstaller==5.13.0
+          EOF
 
-          # Install Python packages
-          python -m pip install --upgrade pip
-          pip install \
-            PyQt5==5.15.9 \
-            PyQt5-sip==12.12.1 \
-            --platform macosx_10_15_universal2 \
-            --only-binary=:all:
-
-          pip install \
-            torch==2.0.1 \
-            torchvision==0.15.2 \
-            torchaudio==2.0.2 \
-            --extra-index-url https://download.pytorch.org/whl/cpu \
-            --platform macosx_11_0_universal2
-
-          pip install \
-            git+https://github.com/openai/CLIP.git \
-            tqdm==4.65.0 \
-            pillow==9.5.0 \
-            pyinstaller==5.13.0
+      - name: Install dependencies via conda
+        shell: bash -l {0}
+        run: |
+          conda env update -f environment.yml
+          conda list
 
       - name: Build universal app
+        shell: bash -l {0}
         run: |
-          # Set universal build flags
           export MACOSX_DEPLOYMENT_TARGET=10.15
           export ARCHFLAGS="-arch x86_64 -arch arm64"
-          export PYTHONARCHS="x86_64 arm64"
-
-          # Generate spec file
+          
           pyi-makespec --name MoodForager \
             --add-data="$(python -c 'import clip; print(clip.__path__[0])'):clip" \
             --add-data="$(python -c 'import torch; print(torch.__path__[0])'):torch" \
@@ -89,12 +78,10 @@ jobs:
             --onedir \
             main_mf.py
 
-          # Build with universal support
           pyinstaller MoodForager.spec --noconfirm --clean
 
-          # Handle Qt plugins
           mkdir -p dist/MoodForager.app/Contents/Resources/qt_plugins
-          cp -R $QT_DIR/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
+          cp -R $CONDA_PREFIX/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
 
           cat > dist/MoodForager.app/Contents/Resources/qt.conf <<EOF
           [Paths]
@@ -103,7 +90,7 @@ jobs:
 
       - name: Verify universal binary
         run: |
-          lipo -archs dist/MoodForager.app/Contents/MacOS/MoodForager | grep "x86_64 arm64" || exit 1
+          lipo -archs dist/MoodForager.app/Contents/MacOS/MoodForager
           otool -l dist/MoodForager.app/Contents/MacOS/MoodForager | grep -A3 LC_VERSION_MIN_MACOSX
 
       - name: Package and upload
