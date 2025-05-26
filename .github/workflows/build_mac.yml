@@ -1,4 +1,4 @@
-name: Build macOS App (PyInstaller) - Intel Compatible
+name: Build macOS App - Intel Compatible
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest  # Use current runner but force Intel compatibility
+    runs-on: macos-latest
 
     steps:
       - name: Checkout code
@@ -23,46 +23,48 @@ jobs:
           find . -name '*.pyc' -delete
           find . -name '*.pyo' -delete
 
-      - name: Set up Python 3.10 (Intel compatible)
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10.11"  # Specific version known to work
-          architecture: "x64"  # Force x86_64 architecture
+          python-version: "3.10"  # Let it choose the latest 3.10.x available
+          architecture: "x64"     # Force x86_64 architecture
 
-      - name: Install required system dependencies
+      - name: Install system dependencies
         run: |
           brew install gettext
           brew link --force gettext
-
-      - name: Install Qt (Intel compatible)
-        run: |
           brew install qt@5
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
-          if [[ $(uname -m) == 'arm64' ]]; then
-            # On Apple Silicon, use Rosetta for Intel compatibility
-            echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
-          else
-            # On Intel, use normal path
-            echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
-          fi
+          echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
 
-      - name: Install dependencies (Intel compatible)
+      - name: Install Python dependencies
         run: |
-          # Force Intel-compatible wheels
-          export PIP_ONLY_BINARY=:all:
-          export PIP_IGNORE_INSTALLED=0
-          
           python -m pip install --upgrade pip
-          pip install PyQt5==5.15.10 PyQt5-sip==12.13.0 --platform macosx_10_9_x86_64 --only-binary=:all:
+          
+          # Install PyQt5 with Intel compatibility
+          pip install PyQt5==5.15.10 PyQt5-sip==12.13.0 \
+            --only-binary=:all: \
+            --platform macosx_10_9_x86_64 \
+            --target-version 3.10 \
+            --implementation cp \
+            --abi cp310 \
+            --no-deps
+          
+          # Install torch with Intel compatibility
           pip install --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
             --extra-index-url https://download.pytorch.org/whl/nightly/cpu \
-            --platform macosx_10_9_x86_64
+            --platform macosx_10_9_x86_64 \
+            --target-version 3.10 \
+            --implementation cp \
+            --abi cp310
+          
+          # Install other dependencies
           pip install git+https://github.com/openai/CLIP.git
           pip install tqdm==4.66.1 pillow==10.1.0 pyinstaller==6.2.0
 
-      - name: Build with PyInstaller (Intel compatible)
+      - name: Build with PyInstaller
         run: |
-          # Force x86_64 architecture
+          # Force Intel architecture
           export ARCHFLAGS="-arch x86_64"
           export PYTHONARCHS="x86_64"
           
@@ -78,10 +80,10 @@ jobs:
             --onedir \
             main_mf.py
           
-          # Build with explicit arch flags
+          # Build application
           pyinstaller MoodForager.spec --noconfirm --clean
           
-          # Handle Qt plugins
+          # Set up Qt plugins
           mkdir -p dist/MoodForager.app/Contents/Resources/qt_plugins
           cp -R $QT_DIR/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
           
@@ -90,12 +92,10 @@ jobs:
           Plugins = qt_plugins
           EOF
 
-      - name: Verify Intel compatibility
+      - name: Verify architecture
         run: |
-          # Check binary architecture
-          file dist/MoodForager.app/Contents/MacOS/MoodForager | grep "x86_64"
-          if [ $? -ne 0 ]; then
-            echo "Error: Binary not built for Intel architecture"
+          if ! file dist/MoodForager.app/Contents/MacOS/MoodForager | grep "x86_64"; then
+            echo "::error::Binary not built for Intel architecture"
             exit 1
           fi
 
