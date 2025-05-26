@@ -1,4 +1,4 @@
-name: Build macOS App - Intel Compatible
+name: Build macOS App (Intel-only)
 
 on:
   push:
@@ -23,51 +23,46 @@ jobs:
           find . -name '*.pyc' -delete
           find . -name '*.pyo' -delete
 
-      - name: Set up Python
+      - name: Set up Python 3.10 (Intel)
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"  # Let it choose the latest 3.10.x available
-          architecture: "x64"     # Force x86_64 architecture
+          python-version: "3.10"
+          architecture: "x64"
 
-      - name: Install system dependencies
+      - name: Install Intel Qt
         run: |
-          brew install gettext
-          brew link --force gettext
           brew install qt@5
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
-          echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
+          echo "$(brew --prefix qt@5)/bin" >> $GITHUB_PATH
+          echo "DYLD_LIBRARY_PATH=$(brew --prefix gettext)/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
 
-      - name: Install Python dependencies
+      - name: Install dependencies (Intel)
         run: |
           python -m pip install --upgrade pip
           
-          # Install PyQt5 with Intel compatibility
+          # Install PyQt5 for Intel architecture
           pip install PyQt5==5.15.10 PyQt5-sip==12.13.0 \
             --only-binary=:all: \
             --platform macosx_10_9_x86_64 \
-            --target-version 3.10 \
             --implementation cp \
             --abi cp310 \
             --no-deps
-          
-          # Install torch with Intel compatibility
+
+          # Install torch CPU nightly (Intel)
           pip install --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
             --extra-index-url https://download.pytorch.org/whl/nightly/cpu \
             --platform macosx_10_9_x86_64 \
-            --target-version 3.10 \
             --implementation cp \
             --abi cp310
-          
-          # Install other dependencies
-          pip install git+https://github.com/openai/CLIP.git
-          pip install tqdm==4.66.1 pillow==10.1.0 pyinstaller==6.2.0
 
-      - name: Build with PyInstaller
+          pip install git+https://github.com/openai/CLIP.git
+          pip install tqdm pillow pyinstaller==6.2.0
+
+      - name: Build Intel App
         run: |
-          # Force Intel architecture
           export ARCHFLAGS="-arch x86_64"
           export PYTHONARCHS="x86_64"
-          
+
           # Generate spec file
           pyi-makespec --name MoodForager \
             --add-data="$(python -c 'import clip; print(clip.__path__[0])'):clip" \
@@ -79,11 +74,11 @@ jobs:
             --windowed \
             --onedir \
             main_mf.py
-          
-          # Build application
+
+          # Build for Intel architecture
           pyinstaller MoodForager.spec --noconfirm --clean
-          
-          # Set up Qt plugins
+
+          # Qt plugin setup
           mkdir -p dist/MoodForager.app/Contents/Resources/qt_plugins
           cp -R $QT_DIR/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
           
@@ -92,19 +87,23 @@ jobs:
           Plugins = qt_plugins
           EOF
 
-      - name: Verify architecture
+      - name: Verify Intel Architecture
         run: |
-          if ! file dist/MoodForager.app/Contents/MacOS/MoodForager | grep "x86_64"; then
+          echo "Binary architecture:"
+          file dist/MoodForager.app/Contents/MacOS/MoodForager
+          
+          if ! file dist/MoodForager.app/Contents/MacOS/MoodForager | grep -q "x86_64"; then
             echo "::error::Binary not built for Intel architecture"
             exit 1
           fi
 
-      - name: Package artifact
+      - name: Package Artifact
         run: |
           cd dist
-          zip -r MoodForager-Mac-Intel.zip MoodForager.app
+          ditto -c -k --keepParent MoodForager.app MoodForager-Mac-Intel.zip
+          unzip -l MoodForager-Mac-Intel.zip | grep "MoodForager.app/Contents/MacOS/MoodForager"
 
-      - name: Upload artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: MoodForager-Mac-Intel
