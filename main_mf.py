@@ -5,7 +5,7 @@ import random
 import shutil
 import threading
 import torch
-import clip
+import open_clip
 from PIL import Image
 from tqdm import tqdm
 from PyQt5.QtCore import Qt, QObject, QUrl, QPoint, QPointF, pyqtSignal, QTimer, QMimeData, QUrl
@@ -17,8 +17,14 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QPushB
 image_folder = ""  # Change to your actual image folder
 sh = 0
 sw = 0
-model, preprocess = clip.load("ViT-B/32", device="cpu")
-device = "cpu"
+model, _, preprocess = open_clip.create_model_and_transforms(
+    model_name="ViT-B-32-quickgelu", 
+    pretrained="openai", 
+    device='cpu'
+)
+tokenizer = open_clip.get_tokenizer("ViT-B-32-quickgelu")
+
+device = 'cpu'
 MODIFIER_KEY = "Meta" if sys.platform == 'darwin' else "Ctrl"
 
 # Global dictionary to store sorted results for each prompt
@@ -60,11 +66,12 @@ def create_click_handler(parent, img_name, label):
 
 # Function to extract text features
 def extract_text_features(text):
-    text_tokenized = clip.tokenize([text]).to(device)
+    text_tokenized = tokenizer([text]).to(device)
     with torch.no_grad():
         text_features = model.encode_text(text_tokenized)
     text_features = text_features / text_features.norm(dim=-1, keepdim=True)
     return text_features
+
 
 # Function to match a query
 def match_query(image_features_dict, text_features_dict, input_query, progress_signal=None):
@@ -124,7 +131,7 @@ def get_closest_texts(image_features_dict, text_features_dict, image_name, top_k
     sorted_texts = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:top_k]
     return [text for text, score in sorted_texts]
 
-def find_similar_images(image_features_dict, target_img_name, top_k=16):  # Increased default to 16
+def find_similar_images(image_features_dict, target_img_name, top_k=20):  # Increased default to 16
     target_features = image_features_dict[target_img_name]
     similarities = {}
     
@@ -153,12 +160,12 @@ def process_dropped_image(self, image_path):
         QApplication.processEvents()
 
         # Load and preprocess the image
-        image = Image.open(image_path)
-        image_input = preprocess(image).unsqueeze(0).to(device)
+        image = Image.open(image_path).convert("RGB")
+        image_input = preprocess(image).unsqueeze(0).to('cpu')
 
-        # Extract features
         with torch.no_grad():
             image_features = model.encode_image(image_input)
+
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
 
         # Find similar images
@@ -242,12 +249,28 @@ class MainWindow(QMainWindow):
         global sg, sw, sh
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
-
+        
         screen = QApplication.primaryScreen()
         sg = screen.geometry()
         sw, sh = sg.width(), sg.height()
+
+        # Determine window size based on screen size (responsive scaling)
+        if sw >= 1920:
+            window_width, window_height = int(sw * 1), int(sh * 1-50)
+            self.num_columns = 5
+        elif sw >= 1366:
+            window_width, window_height = int(sw * 0.85), int(sh * 0.90)
+            self.num_columns = 4
+        else:
+            window_width, window_height = int(sw * 0.95), int(sh * 0.95)
+            self.num_columns = 3
+
+        # Center the window on the screen
+        x = sg.left() + (sw - window_width) // 2
+        y = sg.top() + (sh - window_height) // 2
+        
         self.setWindowTitle("MoodForager")
-        self.setGeometry(sw//4, sh//4, 1200, 800)
+        self.setGeometry(x, y, window_width, window_height)
         self.image_features_dict = {}
         self.text_features_dict = {}
         self.temp_text=""
@@ -504,7 +527,7 @@ class MainWindow(QMainWindow):
         
         # Create new tab
         image_grid = ImageGridWindow(title, image_folder, self.image_features_dict, 
-                                self.text_features_dict, results, main_window=self)
+                                self.text_features_dict, results, self.num_columns, main_window=self)
         scroll = QScrollArea()
         scroll.setWidget(image_grid)
         scroll.setWidgetResizable(True)
@@ -529,12 +552,13 @@ class MainWindow(QMainWindow):
         self.moodboard_window.activateWindow()
         
 class ImageGridWindow(QWidget):
-    def __init__(self, input_text, class_folder, image_features_dict, text_features_dict, match_results=None, main_window=None):
+    def __init__(self, input_text, class_folder, image_features_dict, text_features_dict, match_results=None, num_columns=3, main_window=None):
         super().__init__()
         self.main_window = main_window
         self.image_folder = class_folder
         self.image_features_dict = image_features_dict
         self.text_features_dict = text_features_dict
+        self.num_columns = num_columns
 
         self.input_text = input_text
         self.selected_images = set()  # Using set instead of dict for selected images
@@ -631,7 +655,7 @@ class ImageGridWindow(QWidget):
         self.clear_grid()
         
         available_images = len(self.match_results)
-        top_k = min(16, available_images)
+        top_k = min(10, available_images)
         top_n = min(40, available_images)
         
         image_files = self.get_image_subset(self.match_results, available_images, top_k, top_n)
@@ -643,26 +667,25 @@ class ImageGridWindow(QWidget):
         return [img for img, _ in random.sample(results[:top_n], top_k)]
 
     def display_images(self, image_files):
-        num_columns = 4
-        image_size = 300
-        
+        self.clear_grid()
+        self.image_size = 75*self.num_columns  # or however big you want each image
+
         for idx, img_file in enumerate(image_files):
             image_path = os.path.join(self.image_folder, img_file)
             try:
                 pixmap = QPixmap(image_path)
                 if pixmap.isNull():
                     continue
-                    
-                pixmap = pixmap.scaled(image_size, image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                
+
+                pixmap = pixmap.scaled(self.image_size, self.image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 label = ClickableImageLabel(pixmap, img_file)
                 label.clicked.connect(self.on_image_clicked)
                 label.right_clicked.connect(self.show_context_menu)
-                
-                row = idx // num_columns
-                column = idx % num_columns
-                self.grid_layout.addWidget(label, row, column, alignment=Qt.AlignCenter)
-                
+
+                row = idx // self.num_columns
+                col = idx % self.num_columns
+                self.grid_layout.addWidget(label, row, col, alignment=Qt.AlignCenter)
+
             except Exception as e:
                 print(f"Error loading image {img_file}: {str(e)}")
 
@@ -714,9 +737,9 @@ class ImageGridWindow(QWidget):
         self.main_window.add_results_tab(self.input_box.text(), results)
 
     def perform_search(self):
-        """Handle search from within the ImageGridWindow"""
         search_text = self.input_box.text().strip()
-        perform_search(self,search_text,self.image_features_dict,self.text_features_dict,self.progress_signal)
+        perform_search(self, search_text, self.image_features_dict, self.text_features_dict, self.progress_signal)
+
 
     def update_selection_count(self):
         count = len(self.selected_images)
@@ -749,7 +772,7 @@ class ImageGridWindow(QWidget):
 
     def shuffle_images(self):
         available_images = len(self.match_results)
-        top_k = min(16, available_images)
+        top_k = min(10, available_images)
         top_n = min(100, available_images)
         
         random_subset = random.sample(self.match_results[:top_n], top_k)
@@ -884,7 +907,7 @@ class ImageGridWindow(QWidget):
             return
             
         image_paths = [os.path.join(self.image_folder, img_name) 
-                      for img_name in self.selected_images]
+                    for img_name in self.selected_images]
         self.main_window.open_moodboard(image_paths)
 
 class ClickableImageLabel(QLabel):
@@ -1226,8 +1249,12 @@ class MoodboardCanvasWindow(QMainWindow):
 # Main function
 def main():
 
-    model, preprocess = clip.load("ViT-B/32", device="cpu")
-    device = "cpu"
+    # model, _, preprocess = open_clip.create_model_and_transforms(
+    #     model_name="ViT-B-32-quickgelu", 
+    #     pretrained="openai", 
+    #     device=device
+    # )
+    # tokenizer = open_clip.get_tokenizer("ViT-B-32-quickgelu")
 
     app = QApplication(sys.argv)
     window = MainWindow()
