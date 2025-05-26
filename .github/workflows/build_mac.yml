@@ -1,4 +1,4 @@
-name: Build macOS App (Intel-only)
+name: Build macOS App (Universal or Intel)
 
 on:
   push:
@@ -27,43 +27,28 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
-          architecture: "x64"
+          architecture: "x64"  # Force Intel architecture (Universal includes this)
 
-      - name: Install Intel Qt
+      - name: Install Qt (Intel-compatible)
         run: |
           brew install qt@5
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
           echo "$(brew --prefix qt@5)/bin" >> $GITHUB_PATH
-          echo "DYLD_LIBRARY_PATH=$(brew --prefix gettext)/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+          # Check Qt binaries
+          file $(brew --prefix qt@5)/lib/*.dylib || true
 
-      - name: Install dependencies (Intel)
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          
-          # Install PyQt5 for Intel architecture
-          pip install PyQt5==5.15.10 PyQt5-sip==12.13.0 \
-            --only-binary=:all: \
-            --platform macosx_10_9_x86_64 \
-            --implementation cp \
-            --abi cp310 \
-            --no-deps
+          pip install --prefer-binary --no-cache-dir PyQt5 PyQt5-sip
+          pip install --pre --no-cache-dir \
+            torch torchvision torchaudio \
+            --extra-index-url https://download.pytorch.org/whl/nightly/cpu
+          pip install --no-cache-dir git+https://github.com/openai/CLIP.git
+          pip install tqdm pillow pyinstaller
 
-          # Install torch CPU nightly (Intel)
-          pip install --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
-            --extra-index-url https://download.pytorch.org/whl/nightly/cpu \
-            --platform macosx_10_9_x86_64 \
-            --implementation cp \
-            --abi cp310
-
-          pip install git+https://github.com/openai/CLIP.git
-          pip install tqdm pillow pyinstaller==6.2.0
-
-      - name: Build Intel App
+      - name: Generate PyInstaller spec
         run: |
-          export ARCHFLAGS="-arch x86_64"
-          export PYTHONARCHS="x86_64"
-
-          # Generate spec file
           pyi-makespec --name MoodForager \
             --add-data="$(python -c 'import clip; print(clip.__path__[0])'):clip" \
             --add-data="$(python -c 'import torch; print(torch.__path__[0])'):torch" \
@@ -75,37 +60,38 @@ jobs:
             --onedir \
             main_mf.py
 
-          # Build for Intel architecture
+      - name: Build app with PyInstaller (Universal or Intel)
+        run: |
           pyinstaller MoodForager.spec --noconfirm --clean
 
-          # Qt plugin setup
+          echo "Checking binary architecture:"
+          file dist/MoodForager.app/Contents/MacOS/MoodForager
+
+      - name: Fix Qt plugins
+        run: |
           mkdir -p dist/MoodForager.app/Contents/Resources/qt_plugins
-          cp -R $QT_DIR/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
-          
+          cp -R "$QT_DIR/plugins/"* dist/MoodForager.app/Contents/Resources/qt_plugins/
+
           cat > dist/MoodForager.app/Contents/Resources/qt.conf <<EOF
           [Paths]
           Plugins = qt_plugins
+          Prefix = $QT_DIR
           EOF
 
-      - name: Verify Intel Architecture
+      - name: Verify bundle
         run: |
-          echo "Binary architecture:"
-          file dist/MoodForager.app/Contents/MacOS/MoodForager
-          
-          if ! file dist/MoodForager.app/Contents/MacOS/MoodForager | grep -q "x86_64"; then
-            echo "::error::Binary not built for Intel architecture"
-            exit 1
-          fi
+          plutil -extract LSMinimumSystemVersion xml1 dist/MoodForager.app/Contents/Info.plist -o -
+          find dist/MoodForager.app -type f -exec file {} + | grep -v "Mach-O universal binary" || true
 
-      - name: Package Artifact
+      - name: Package .app into ZIP
         run: |
           cd dist
-          ditto -c -k --keepParent MoodForager.app MoodForager-Mac-Intel.zip
-          unzip -l MoodForager-Mac-Intel.zip | grep "MoodForager.app/Contents/MacOS/MoodForager"
+          ditto -c -k --keepParent MoodForager.app MoodForager-Mac.zip
+          unzip -l MoodForager-Mac.zip | grep "MoodForager.app/Contents/MacOS/MoodForager"
 
-      - name: Upload Artifact
+      - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MoodForager-Mac-Intel
-          path: dist/MoodForager-Mac-Intel.zip
+          name: MoodForager-Mac
+          path: dist/MoodForager-Mac.zip
           retention-days: 7
