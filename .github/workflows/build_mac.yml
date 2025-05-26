@@ -1,4 +1,4 @@
-name: Build Universal macOS App (PyInstaller)
+name: Build macOS App (PyInstaller onedir) - Intel
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-12  # Explicitly use Intel-based runner
 
     steps:
       - name: Checkout code
@@ -23,39 +23,42 @@ jobs:
           find . -name '*.pyc' -delete
           find . -name '*.pyo' -delete
 
-      - name: Set up Python 3.10 (Universal)
+      - name: Install required system dependencies
+        run: |
+          brew install gettext
+          brew link --force gettext
+
+      - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
           cache: 'pip'
-          architecture: 'x64'  # GitHub's Python is already universal
 
-      - name: Install Universal Qt
+      - name: Install Qt
         run: |
           brew install qt@5
           echo "QT_DIR=$(brew --prefix qt@5)" >> $GITHUB_ENV
-          echo "/opt/homebrew/opt/qt@5/bin" >> $GITHUB_PATH
-          # Verify Qt is universal
-          file $(brew --prefix qt@5)/lib/*.dylib | grep -q 'universal binary' || echo "Warning: Qt not universal"
+          echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH  # Intel Homebrew path
 
-      - name: Install dependencies (Universal)
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Force universal wheels
-          pip install PyQt5 PyQt5-sip --prefer-binary --no-cache-dir
-          pip install --pre torch torchvision torchaudio \
+          # Force x86_64 wheels
+          pip install PyQt5==5.15.10 PyQt5-sip==12.13.0 --prefer-binary --only-binary=:all:
+          # Explicit x86_64 torch
+          pip install --pre torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
             --extra-index-url https://download.pytorch.org/whl/nightly/cpu \
-            --no-cache-dir
-          pip install git+https://github.com/openai/CLIP.git \
-            --no-cache-dir
-          pip install tqdm pillow pyinstaller \
-            --no-cache-dir
+            --platform macosx_10_9_x86_64  # Force Intel architecture
+          pip install git+https://github.com/openai/CLIP.git
+          pip install tqdm==4.66.1 pillow==10.1.0 pyinstaller==6.2.0
 
-      - name: Build Universal Binary
+      - name: Build with PyInstaller (onedir)
         run: |
-          # Generate spec with universal2 support
+          # Force x86_64 architecture
+          export ARCHFLAGS="-arch x86_64"
+          
+          # Generate spec file with proper data collection
           pyi-makespec --name MoodForager \
-            --target-arch universal2 \
             --add-data="$(python -c 'import clip; print(clip.__path__[0])'):clip" \
             --add-data="$(python -c 'import torch; print(torch.__path__[0])'):torch" \
             --add-data="$(python -c 'import PIL; print(PIL.__path__[0])'):PIL" \
@@ -65,56 +68,37 @@ jobs:
             --windowed \
             --onedir \
             main_mf.py
-
-          # Build with explicit universal2 flag
-          pyinstaller MoodForager.spec \
-            --noconfirm \
-            --clean \
-            --target-arch universal2
-
-          # Verify binary architecture
-          echo "Checking binary compatibility:"
-          lipo -archs "dist/MoodForager.app/Contents/MacOS/MoodForager"
-          if ! lipo -archs "dist/MoodForager.app/Contents/MacOS/MoodForager" | grep -q "x86_64"; then
-            echo "ERROR: Missing Intel (x86_64) support"
-            exit 1
-          fi
-          if ! lipo -archs "dist/MoodForager.app/Contents/MacOS/MoodForager" | grep -q "arm64"; then
-            echo "ERROR: Missing Apple Silicon (arm64) support"
-            exit 1
-          fi
-
-          # Fix Qt plugins for universal build
+          
+          # Build the application with explicit arch
+          pyinstaller MoodForager.spec --noconfirm --clean
+          
+          # Fix Qt plugins path
           mkdir -p dist/MoodForager.app/Contents/Resources/qt_plugins
           cp -R $QT_DIR/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
           
-          # Create qt.conf with relative paths
+          # Set Qt plugin environment
           cat > dist/MoodForager.app/Contents/Resources/qt.conf <<EOF
           [Paths]
           Plugins = qt_plugins
-          Prefix = $QT_DIR
           EOF
 
-      - name: Verify Bundle Structure
+      - name: Verify architecture
         run: |
-          # Check minimum OS version
-          plutil -extract LSMinimumSystemVersion xml1 dist/MoodForager.app/Contents/Info.plist -o -
-          
-          # Verify all binaries are universal
-          find dist/MoodForager.app -type f -exec file {} + | grep -v "universal binary with 2 architectures" | grep -v "Mach-O universal binary" && exit 1 || true
+          # Check the built binary is x86_64
+          file dist/MoodForager.app/Contents/MacOS/MoodForager | grep "x86_64"
+          if [ $? -ne 0 ]; then
+            echo "Error: Binary not built for x86_64 architecture"
+            exit 1
+          fi
 
-      - name: Package Universal Artifact
+      - name: Package artifact
         run: |
           cd dist
-          # Create ZIP with proper macOS metadata
-          ditto -c -k --keepParent MoodForager.app MoodForager-Mac-Universal.zip
-          
-          # Verify ZIP contents
-          unzip -l MoodForager-Mac-Universal.zip | grep "MoodForager.app/Contents/MacOS/MoodForager"
+          zip -r MoodForager-Mac-Intel.zip MoodForager.app
 
-      - name: Upload Universal Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MoodForager-Mac-Universal
-          path: dist/MoodForager-Mac-Universal.zip
+          name: MoodForager-Mac-Intel
+          path: dist/MoodForager-Mac-Intel.zip
           retention-days: 7
