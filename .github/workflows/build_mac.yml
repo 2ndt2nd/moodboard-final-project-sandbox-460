@@ -18,7 +18,7 @@ jobs:
 
       - name: Clean workspace
         run: |
-          rm -rf build dist __pycache__ *.spec
+          rm -rf build dist __pycache__ *.pyapp
           find . -name '__pycache__' -exec rm -rf {} +
           find . -name '*.pyc' -delete
           find . -name '*.pyo' -delete
@@ -52,7 +52,7 @@ jobs:
               - git+https://github.com/openai/CLIP.git
               - tqdm==4.65.0
               - pillow==9.5.0
-              - pyinstaller==5.13.0
+              - py2app==0.28.6
           EOF
 
       - name: Install dependencies via conda
@@ -61,28 +61,56 @@ jobs:
           conda env update -f environment.yml
           conda list
 
-      - name: Build universal app
+      - name: Create setup.py for py2app
+        shell: bash -l {0}
+        run: |
+          cat > setup.py <<EOF
+          from setuptools import setup
+          import clip
+          import torch
+          import PIL
+          
+          APP = ['main_mf.py']
+          DATA_FILES = [
+              (clip.__path__[0], [f for f in clip.__path__[0].iterdir() if f.is_file()]),
+              (torch.__path__[0], [f for f in torch.__path__[0].iterdir() if f.is_file()]),
+              (PIL.__path__[0], [f for f in PIL.__path__[0].iterdir() if f.is_file()]),
+          ]
+          OPTIONS = {
+              'argv_emulation': True,
+              'arch': 'x86_64,arm64',
+              'plist': {
+                  'CFBundleName': 'MoodForager',
+                  'CFBundleDisplayName': 'MoodForager',
+                  'CFBundleVersion': '1.0',
+                  'CFBundleShortVersionString': '1.0',
+                  'NSHumanReadableCopyright': 'Copyright © 2023 Your Name',
+                  'LSMinimumSystemVersion': '10.15.0',
+              },
+              'packages': ['clip', 'torch', 'PIL', 'PyQt5'],
+              'iconfile': 'icon.icns',
+              'qt_plugins': ['platforms', 'styles'],
+          }
+          
+          setup(
+              app=APP,
+              data_files=DATA_FILES,
+              options={'py2app': OPTIONS},
+              setup_requires=['py2app'],
+          )
+          EOF
+
+      - name: Build universal app with py2app
         shell: bash -l {0}
         run: |
           export MACOSX_DEPLOYMENT_TARGET=10.15
-          export ARCHFLAGS="-arch x86_64 -arch arm64"
+          python setup.py py2app --dist-dir dist
           
-          pyi-makespec --name MoodForager \
-            --add-data="$(python -c 'import clip; print(clip.__path__[0])'):clip" \
-            --add-data="$(python -c 'import torch; print(torch.__path__[0])'):torch" \
-            --add-data="$(python -c 'import PIL; print(PIL.__path__[0])'):PIL" \
-            --hidden-import=clip \
-            --hidden-import=torch \
-            --hidden-import=PIL \
-            --windowed \
-            --onedir \
-            main_mf.py
-
-          pyinstaller MoodForager.spec --noconfirm --clean
-
+          # Copy Qt plugins
           mkdir -p dist/MoodForager.app/Contents/Resources/qt_plugins
           cp -R $CONDA_PREFIX/plugins/* dist/MoodForager.app/Contents/Resources/qt_plugins/
 
+          # Create qt.conf
           cat > dist/MoodForager.app/Contents/Resources/qt.conf <<EOF
           [Paths]
           Plugins = qt_plugins
