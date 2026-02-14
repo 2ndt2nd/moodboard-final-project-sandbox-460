@@ -159,7 +159,8 @@ class MainWindow(QMainWindow):
         self.setGeometry(100, 100, 500, 250)
         
         # Load CLIP model
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        #self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cpu"
         self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
         
         self.init_ui()

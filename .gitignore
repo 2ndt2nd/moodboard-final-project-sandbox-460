@@ -23,3 +23,6 @@ embed.py
 qt_app.bat
 qt_app - Shortcut.lnk
 *.jpg
+*.bat
+img_embedder.bat
+*.sh
