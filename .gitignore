@@ -26,3 +26,5 @@ qt_app - Shortcut.lnk
 *.bat
 img_embedder.bat
 *.sh
+*.svg
+*.lnk
